@@ -38,6 +38,9 @@ Run all commands below from the repository root unless a section says otherwise.
 
 The theoretical scenario and executable fault catalogue are in [USECASE.md](USECASE.md). Each module contains per-outline-bullet walkthroughs, student exercises, and instructor solutions.
 
+Start with [Lab 1 - Insurance Transactions from Kafka to MongoDB](lab1.md)
+for a small client application and a guided introduction to Kafka monitoring.
+
 ## MongoDB
 
 The MongoDB environment runs MongoDB 8.3.8 as a single-node replica set named `rs0`. A replica set enables change streams needed by later MongoDB Kafka source-connector exercises.
