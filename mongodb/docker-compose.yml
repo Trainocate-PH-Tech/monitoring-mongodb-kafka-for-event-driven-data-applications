@@ -1,0 +1,45 @@
+name: mongodb-workshop
+
+services:
+  mongodb:
+    image: mongo:8.3.8
+    hostname: mongodb
+    restart: unless-stopped
+    environment:
+      # Work around MongoDB SERVER-121912 on Linux kernels 6.19 and newer.
+      GLIBC_TUNABLES: glibc.pthread.rseq=1
+    command:
+      - mongod
+      - --replSet
+      - rs0
+      - --bind_ip_all
+      - --port
+      - "27017"
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-backups:/backups
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --host localhost:27017 --eval
+          'try {
+            if (db.hello().isWritablePrimary) { quit(0); }
+            rs.status();
+            quit(1);
+          } catch (error) {
+            rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongodb:27017"}]});
+            quit(1);
+          }'
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  mongodb-data:
+    name: mongodb-workshop-data
+  mongodb-backups:
+    name: mongodb-workshop-backups

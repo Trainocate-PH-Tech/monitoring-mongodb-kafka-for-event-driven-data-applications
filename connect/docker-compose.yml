@@ -1,0 +1,29 @@
+name: connect-workshop
+
+services:
+  connect:
+    build:
+      context: .
+      args:
+        MONGO_CONNECTOR_VERSION: 3.0.0
+    hostname: connect
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8083:8083"
+    networks:
+      - kafka
+      - mongodb
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8083/connector-plugins"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+
+networks:
+  kafka:
+    external: true
+    name: kafka-workshop_default
+  mongodb:
+    external: true
+    name: mongodb-workshop_default

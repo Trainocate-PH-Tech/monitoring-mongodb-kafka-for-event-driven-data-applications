@@ -1,0 +1,12 @@
+{
+  "name": "workshop-mongo-sink",
+  "config": {
+    "connector.class": "com.mongodb.kafka.connect.MongoSinkConnector",
+    "tasks.max": "1",
+    "topics": "workshop-cdc.workshop.connector_source",
+    "connection.uri": "mongodb://mongodb:27018/?replicaSet=rs0",
+    "database": "workshop",
+    "collection": "connector_sink",
+    "errors.tolerance": "none"
+  }
+}
