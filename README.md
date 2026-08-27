@@ -40,6 +40,8 @@ The theoretical scenario and executable fault catalogue are in [USECASE.md](USEC
 
 Start with [Lab 1 - Insurance Transactions from Kafka to MongoDB](lab1.md)
 for a small client application and a guided introduction to Kafka monitoring.
+Continue with [Lab 2 - Debugging MongoDB Query and Index Problems](lab2.md)
+to connect MongoDB execution plans and indexes to Kafka consumer lag.
 
 ## MongoDB
 

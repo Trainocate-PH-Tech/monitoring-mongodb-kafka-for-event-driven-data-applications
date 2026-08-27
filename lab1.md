@@ -211,8 +211,8 @@ python demo/insurance_client.py produce --count 12 --interval-ms 0
 Representative output:
 
 ```text
-[delivered] transaction=LAB1-TXN-001 partition=0 offset=0
-[delivered] transaction=LAB1-TXN-002 partition=2 offset=0
+[delivered] count=1 transaction=LAB1-TXN-001 partition=0 offset=0
+[delivered] count=2 transaction=LAB1-TXN-002 partition=2 offset=0
 ...
 [done] delivered=12 failed=0 unflushed=0 topic=insurance-transactions-lab1
 ```
@@ -255,7 +255,7 @@ insurance-mongodb-writer-lab1 insurance-transactions-lab1 2         2           
 Meanwhile, terminal 1 prints records as MongoDB accepts them:
 
 ```text
-[stored] transaction=LAB1-TXN-001 action=inserted partition=0 offset=0
+[stored] count=1 transaction=LAB1-TXN-001 action=inserted partition=0 offset=0
 ...
 [done] processed=12
 ```

@@ -33,12 +33,12 @@ def non_negative_integer(value: str) -> int:
     return number
 
 
-def build_transaction(number: int) -> dict:
+def build_transaction(number: int, id_prefix: str = "LAB1-TXN") -> dict:
     """Return a deterministic transaction so replay demonstrates an upsert."""
     transaction_types = ("premium.payment", "claim.payment", "refund.payment")
     return {
         "event_type": "insurance.transaction.recorded",
-        "transaction_id": f"LAB1-TXN-{number:03d}",
+        "transaction_id": f"{id_prefix}-{number:03d}",
         "policy_id": f"POL-{((number - 1) % 4) + 1001}",
         "customer_id": f"CUST-{((number - 1) % 6) + 501}",
         "transaction_type": transaction_types[(number - 1) % len(transaction_types)],
@@ -61,15 +61,20 @@ def produce(args: argparse.Namespace) -> int:
                 print(f"[failed] transaction={transaction_id} error={error}")
                 return
             delivered += 1
-            print(
-                f"[delivered] transaction={transaction_id} "
-                f"partition={message.partition()} offset={message.offset()}"
-            )
+            if (
+                delivered == 1
+                or delivered % args.report_every == 0
+                or delivered == args.count
+            ):
+                print(
+                    f"[delivered] count={delivered} transaction={transaction_id} "
+                    f"partition={message.partition()} offset={message.offset()}"
+                )
 
         return report
 
     for number in range(1, args.count + 1):
-        event = build_transaction(number)
+        event = build_transaction(number, args.id_prefix)
         producer.produce(
             args.topic,
             key=event["policy_id"].encode("utf-8"),
@@ -99,7 +104,7 @@ def consume(args: argparse.Namespace) -> int:
     signal.signal(signal.SIGTERM, stop)
 
     mongo = MongoClient(args.mongodb_uri, serverSelectionTimeoutMS=5_000)
-    collection = mongo["insurance"]["transactions"]
+    collection = mongo[args.mongodb_database][args.mongodb_collection]
     consumer = Consumer(
         {
             "bootstrap.servers": args.bootstrap_servers,
@@ -115,7 +120,7 @@ def consume(args: argparse.Namespace) -> int:
         consumer.subscribe([args.topic])
         print(
             f"[ready] topic={args.topic} group={args.group_id} "
-            "sink=insurance.transactions"
+            f"sink={args.mongodb_database}.{args.mongodb_collection}"
         )
 
         while running and processed < args.max_messages:
@@ -149,10 +154,16 @@ def consume(args: argparse.Namespace) -> int:
             consumer.commit(message=message, asynchronous=False)
             processed += 1
             action = "inserted" if result.upserted_id is not None else "updated"
-            print(
-                f"[stored] transaction={event['transaction_id']} action={action} "
-                f"partition={message.partition()} offset={message.offset()}"
-            )
+            if (
+                processed == 1
+                or processed % args.report_every == 0
+                or processed == args.max_messages
+            ):
+                print(
+                    f"[stored] count={processed} "
+                    f"transaction={event['transaction_id']} action={action} "
+                    f"partition={message.partition()} offset={message.offset()}"
+                )
     finally:
         consumer.close()
         mongo.close()
@@ -168,6 +179,14 @@ def parse_args() -> argparse.Namespace:
     producer_parser = subparsers.add_parser("produce", help="publish transactions")
     producer_parser.add_argument("--count", type=positive_integer, default=12)
     producer_parser.add_argument("--interval-ms", type=non_negative_integer, default=0)
+    producer_parser.add_argument(
+        "--id-prefix", default="LAB1-TXN",
+        help="transaction ID prefix (default: LAB1-TXN)",
+    )
+    producer_parser.add_argument(
+        "--report-every", type=positive_integer, default=1,
+        help="print progress after this many acknowledgements (default: 1)",
+    )
     producer_parser.add_argument("--topic", default=DEFAULT_TOPIC)
     producer_parser.add_argument("--bootstrap-servers", default=DEFAULT_KAFKA)
     producer_parser.set_defaults(function=produce)
@@ -177,10 +196,16 @@ def parse_args() -> argparse.Namespace:
     )
     consumer_parser.add_argument("--max-messages", type=positive_integer, default=12)
     consumer_parser.add_argument("--delay-ms", type=non_negative_integer, default=750)
+    consumer_parser.add_argument(
+        "--report-every", type=positive_integer, default=1,
+        help="print progress after this many stored records (default: 1)",
+    )
     consumer_parser.add_argument("--topic", default=DEFAULT_TOPIC)
     consumer_parser.add_argument("--group-id", default=DEFAULT_GROUP)
     consumer_parser.add_argument("--bootstrap-servers", default=DEFAULT_KAFKA)
     consumer_parser.add_argument("--mongodb-uri", default=DEFAULT_MONGODB)
+    consumer_parser.add_argument("--mongodb-database", default="insurance")
+    consumer_parser.add_argument("--mongodb-collection", default="transactions")
     consumer_parser.set_defaults(function=consume)
 
     return parser.parse_args()
