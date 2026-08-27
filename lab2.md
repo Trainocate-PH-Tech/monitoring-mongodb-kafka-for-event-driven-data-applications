@@ -134,7 +134,7 @@ Representative final output:
 
 ```text
 [delivered] count=3000 transaction=<transaction-id> partition=<partition> offset=<offset>
-[done] delivered=3000 failed=0 unflushed=0 topic=insurance-transactions-lab2
+[done] expected=3000 delivered=3000 failed=0 unflushed=0 topic=insurance-transactions-lab2
 ```
 
 **Meaning:** Kafka acknowledged all 3,000 records. Partition and offset values vary, but the partition end offsets must sum to 3,000.
@@ -177,7 +177,7 @@ Representative progress:
 [stored] count=1 transaction=<transaction-id> action=inserted partition=<partition> offset=<offset>
 [stored] count=500 ... action=inserted ...
 ...
-[done] processed=3000
+[done] consumed=3000 processed=3000 rejected=0
 ```
 
 **Meaning:** every upsert searches for a matching `transaction_id`, but that field has no index. As the collection grows, MongoDB has progressively more documents to inspect. Record order differs because Kafka preserves order within each partition, not globally across the topic. Save the `real` time printed by your shell as supporting evidence.

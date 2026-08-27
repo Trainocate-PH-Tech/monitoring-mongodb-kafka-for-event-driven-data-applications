@@ -214,7 +214,7 @@ Representative output:
 [delivered] count=1 transaction=LAB1-TXN-001 partition=0 offset=0
 [delivered] count=2 transaction=LAB1-TXN-002 partition=2 offset=0
 ...
-[done] delivered=12 failed=0 unflushed=0 topic=insurance-transactions-lab1
+[done] expected=12 delivered=12 failed=0 unflushed=0 topic=insurance-transactions-lab1
 ```
 
 **Meaning:** Kafka acknowledged all 12 records. Partition assignments and callback order may differ. Each reported offset is local to its partition. This output proves Kafka accepted the records; it does not prove that the consumer or MongoDB handled them.
@@ -257,7 +257,7 @@ Meanwhile, terminal 1 prints records as MongoDB accepts them:
 ```text
 [stored] count=1 transaction=LAB1-TXN-001 action=inserted partition=0 offset=0
 ...
-[done] processed=12
+[done] consumed=12 processed=12 rejected=0
 ```
 
 **Meaning:** for each line, the client decoded the Kafka value, upserted MongoDB, and synchronously committed that source offset. The consumer stops after 12 records.

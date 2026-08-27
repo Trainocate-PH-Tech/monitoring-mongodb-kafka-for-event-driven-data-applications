@@ -38,6 +38,36 @@ services:
       retries: 20
       start_period: 10s
 
+  mongo-express:
+    image: mongo-express:1.0.2-20-alpine3.19
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/?replicaSet=rs0
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+      ME_CONFIG_BASICAUTH_ENABLED: "true"
+      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USERNAME:-workshop}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASSWORD:-workshop}
+      ME_CONFIG_SITE_COOKIESECRET: ${MONGO_EXPRESS_COOKIE_SECRET:-workshop-cookie-secret-change-me}
+      ME_CONFIG_SITE_SESSIONSECRET: ${MONGO_EXPRESS_SESSION_SECRET:-workshop-session-secret-change-me}
+    ports:
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          require('http').get('http://127.0.0.1:8081/status', response =>
+          process.exit(response.statusCode < 500 ? 0 : 1)).on('error', () =>
+          process.exit(1))
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
 volumes:
   mongodb-data:
     name: mongodb-workshop-data

@@ -42,6 +42,8 @@ Start with [Lab 1 - Insurance Transactions from Kafka to MongoDB](lab1.md)
 for a small client application and a guided introduction to Kafka monitoring.
 Continue with [Lab 2 - Debugging MongoDB Query and Index Problems](lab2.md)
 to connect MongoDB execution plans and indexes to Kafka consumer lag.
+Finish with [Lab 3 - Poison Record, Stalled Consumer, and DLQ Recovery](lab3.md)
+to diagnose a healthy-infrastructure/data-processing failure and recover safely.
 
 ## MongoDB
 
@@ -49,16 +51,21 @@ The MongoDB environment runs MongoDB 8.3.8 as a single-node replica set named `r
 
 The Compose service sets `GLIBC_TUNABLES=glibc.pthread.rseq=1`. This is a compatibility workaround for MongoDB [SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912), which otherwise prevents current MongoDB 8.x releases from starting on Linux kernels 6.19 and newer.
 
-Start MongoDB and wait until it is ready:
+Start MongoDB and the mongo-express web interface, then wait until both are ready:
 
 ```bash
 docker compose -f mongodb/docker-compose.yml up -d --wait
 ```
 
-Check its status and logs:
+Check their status:
 
 ```bash
 docker compose -f mongodb/docker-compose.yml ps
+```
+
+Follow MongoDB logs:
+
+```bash
 docker compose -f mongodb/docker-compose.yml logs -f mongodb
 ```
 
@@ -75,6 +82,50 @@ Useful connection strings:
 
 - From applications on the host: `mongodb://localhost:27017/?replicaSet=rs0&directConnection=true`
 - From a future container on the same Docker network: `mongodb://mongodb:27017/?replicaSet=rs0`
+
+### mongo-express web interface
+
+The same Compose command starts a local mongo-express administration interface. Open:
+
+```text
+http://localhost:8081
+```
+
+Default workshop login:
+
+```text
+Username: workshop
+Password: workshop
+```
+
+After signing in, use the database and collection list to browse documents, create collections, run filters, edit documents, and inspect basic database information. The interface connects from its container to `mongodb://mongodb:27017/?replicaSet=rs0`.
+
+For a step-by-step CRUD and administrator troubleshooting walkthrough, see [`MONGODB_EXPRESS_GUIDE.md`](MONGODB_EXPRESS_GUIDE.md).
+
+Check the UI health and logs:
+
+```bash
+curl -fsS http://localhost:8081/status
+curl -u workshop:workshop -sS -o /dev/null -w '%{http_code}\n' http://localhost:8081/
+docker compose -f mongodb/docker-compose.yml logs --tail=100 mongo-express
+```
+
+The status endpoint returns `{"status":"ok"}` and the authenticated home-page check returns HTTP `200`. An unauthenticated request to the home page returns HTTP `401`.
+
+To use different web credentials and session secrets, export overrides in the shell before starting the Compose project:
+
+```bash
+export MONGO_EXPRESS_USERNAME=courseadmin
+export MONGO_EXPRESS_PASSWORD='replace-with-a-local-password'
+export MONGO_EXPRESS_COOKIE_SECRET='replace-with-a-random-cookie-secret'
+export MONGO_EXPRESS_SESSION_SECRET='replace-with-a-random-session-secret'
+docker compose -f mongodb/docker-compose.yml up -d --wait
+```
+
+Use the same exported values for later Compose commands so Compose does not recreate the service with the workshop defaults.
+
+> [!WARNING]
+> The mongo-express username and password protect only the web interface; they are not MongoDB database credentials. This training MongoDB deployment has no database authentication or TLS. Both host ports are restricted to `127.0.0.1`; do not expose port `8081` or `27017` to another host or use this configuration in production.
 
 ### MongoDB smoke test
 
