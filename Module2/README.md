@@ -6,7 +6,7 @@ This 75-minute module turns every MongoDB bullet in the course outline into a ru
 
 - Measure database, collection, index, and storage growth.
 - Interpret profiler evidence and `executionStats` without guessing from latency alone.
-- propose, validate, and roll back an index change.
+- Propose, validate, and roll back an index change.
 - Prove replica health and backup restore readiness.
 - Turn MongoDB signals into actionable alerts.
 
@@ -34,6 +34,8 @@ python demo/setup_demo.py --reset
 python demo/producer.py --repeat 5 --interval-ms 0
 python demo/consumer.py --max-messages 100
 ```
+
+**Expected output:** both services become healthy, reset ends `[ready]`, the producer delivers 100, and the consumer reports `processed=100 rejected=0`. **Meaning:** Module 2 starts with a known 100-document MongoDB workload.
 
 The Python path uses `monitor_mongodb.py` and `inspect_mongodb.py`. The native path uses `mongosh`, `mongodump`, `mongorestore`, and Docker logs. Both inspect the same `workshop.orders` collection.
 

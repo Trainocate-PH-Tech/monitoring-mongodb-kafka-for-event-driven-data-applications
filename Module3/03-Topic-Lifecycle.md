@@ -13,6 +13,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --partitions 3 --replication-factor 1
 ```
 
+**Expected output:** `Created topic workshop-lifecycle.`, or no error if it already exists. **Meaning:** risky lifecycle experiments are isolated from the order topic.
+
 Describe topic overrides and broker defaults:
 
 ```bash
@@ -24,6 +26,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   /opt/kafka/bin/kafka-configs.sh --bootstrap-server localhost:9092 \
   --entity-type brokers --entity-default --describe
 ```
+
+**Expected output:** the topic initially has no dynamic overrides; broker defaults list cluster-level values such as `min.insync.replicas`. **Meaning:** absent topic values inherit defaults rather than becoming unlimited.
 
 An absent topic override means the broker default is effective; it does not mean retention is unlimited.
 
@@ -37,6 +41,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --entity-type topics --entity-name workshop-lifecycle --alter \
   --add-config 'cleanup.policy=[compact,delete],retention.ms=604800000,min.cleanable.dirty.ratio=0.5'
 ```
+
+**Expected output:** `Completed updating config for topic workshop-lifecycle.` A description then shows all three values as dynamic topic configs. **Meaning:** the reviewed lifecycle policy is active only on the isolated topic.
 
 Verify with `--describe`. `compact,delete` means compaction retains the latest value per key while delete retention can remove old segments. Neither action is immediate, and neither guarantees a fixed record count.
 
@@ -55,6 +61,8 @@ printf '%s\n' \
     --reader-property null.marker=NULL
 ```
 
+**Expected output:** no output on successful production; consuming the four records shows two values for `customer-1`, one value for `customer-2`, and a null tombstone for `customer-2`. **Meaning:** compaction inputs contain keyed replacements and an explicit deletion marker; cleanup is asynchronous.
+
 The final line produces a null-valued tombstone for `customer-2`.
 
 ## Rollback and Cleanup
@@ -65,5 +73,7 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --entity-type topics --entity-name workshop-lifecycle --alter \
   --delete-config cleanup.policy,retention.ms,min.cleanable.dirty.ratio
 ```
+
+**Expected output:** Kafka reports a completed update; a subsequent description omits the three dynamic values. **Meaning:** the topic again inherits broker defaults.
 
 Confirm the overrides disappeared, then use the cleanup command in `README.md`. Never test aggressive retention on the primary order topic.

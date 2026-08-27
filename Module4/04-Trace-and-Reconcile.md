@@ -17,6 +17,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
     ])'
 ```
 
+**Expected output:** `insertMany` reports `acknowledged: true` and three generated ObjectIds. **Meaning:** three committed changes are now available to the source connector's MongoDB change stream.
+
 The MongoDB source connector reads the replica-set change stream and writes full documents to `workshop-cdc.workshop.connector_source`.
 
 ## Trace Kafka
@@ -32,6 +34,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --formatter-property print.key=true --formatter-property key.separator=' | '
 ```
 
+**Expected output:** end offsets total at least three; the console consumer prints three full JSON documents containing `CONNECT-1001` through `CONNECT-1003`. **Meaning:** the source connector published the MongoDB changes to Kafka.
+
 ## Reconcile the Sink
 
 ```bash
@@ -41,6 +45,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
     printjson({source: db.connector_source.countDocuments({}), sink: db.connector_sink.countDocuments({})});
     db.connector_sink.find({}, {_id: 0, order_id: 1, customer_id: 1, quantity: 1, status: 1}).sort({order_id: 1}).forEach(printjson)'
 ```
+
+**Expected output:** `{ source: 3, sink: 3 }` followed by three matching projected order documents. **Meaning:** count and sampled fields reconcile across the asynchronous source-topic-sink path.
 
 Wait briefly and repeat if the asynchronous pipeline is still moving. Success invariants:
 

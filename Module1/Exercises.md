@@ -44,6 +44,8 @@ MONGODB_URI='mongodb://localhost:27018/?directConnection=true' \
   python demo/consumer.py
 ```
 
+**Expected observable behavior:** the command must fail with a `27018` connection/server-selection error. Interpret which layer that implicates; do not treat the failure text as the exercise's diagnosis.
+
 Windows PowerShell:
 
 ```powershell
@@ -51,6 +53,8 @@ $env:MONGODB_URI='mongodb://localhost:27018/?directConnection=true'
 python demo/consumer.py
 Remove-Item Env:MONGODB_URI
 ```
+
+**Expected observable behavior:** Python reports the same bad-port failure; removing the environment override is normally silent.
 
 Determine:
 
@@ -72,6 +76,8 @@ python demo/producer.py --repeat 10 --interval-ms 0 \
   --key-mode hot --inject-invalid
 python demo/consumer.py --delay-ms 200
 ```
+
+**Expected observable behavior:** 201 records are published (200 valid plus one malformed); valid work is concentrated by the hot key; the delayed worker eventually stops on an invalid-event error. Your task is to correlate those observations with partition, group, and MongoDB evidence.
 
 The incident contains at least three independent operational problems. Diagnose each one and separate root causes from symptoms.
 

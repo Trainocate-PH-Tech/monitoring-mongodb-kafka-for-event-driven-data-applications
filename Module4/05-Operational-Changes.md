@@ -10,6 +10,8 @@ curl -fsS http://localhost:8083/connectors/workshop-mongo-sink/config | jq \
 curl -fsS http://localhost:8083/connectors/workshop-mongo-sink/status | jq
 ```
 
+**Expected output:** file capture is silent and creates nonempty `/tmp/workshop-mongo-sink-before.json`; status prints connector/task `RUNNING`. **Meaning:** approved rollback configuration and pre-change health were preserved before PUT.
+
 Review the desired JSON, validate it with the plugin endpoint, apply it, wait for all tasks, and reconcile a new record. Rollback uses the captured approved configuration—not a worker restart.
 
 Do not put production secrets in connector JSON, shell history, Git, or exercise submissions. Use the deployment platform’s secret/config provider, restrict REST access, rotate credentials, and verify old credentials are revoked. The lab has no authentication so students can focus on operation flow.
@@ -22,6 +24,8 @@ curl -fsS http://localhost:8083/connector-plugins \
   | jq '.[] | select(.class | ascii_downcase | contains("mongodb"))'
 docker compose -f connect/docker-compose.yml images
 ```
+
+**Expected output:** REST root reports Kafka 4.3.1; plugin objects report MongoDB connector 3.0.0; Compose lists the pinned Connect image and ID/size. **Meaning:** worker, plugin, and container versions are recorded separately for compatibility and rollback.
 
 Record worker Kafka version, connector version, image digest, MongoDB version, compatibility evidence, and connector config before an upgrade.
 

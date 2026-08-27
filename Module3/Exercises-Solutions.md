@@ -29,6 +29,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --delete-config cleanup.policy,retention.ms,min.cleanable.dirty.ratio
 ```
 
+**Expected output and meaning:** Kafka reports a completed update and a follow-up description omits the dynamic settings, proving exact rollback to inherited defaults.
+
 Validate effective settings, replay requirements, lag, and disk forecast—not just command success.
 
 ## Solution 5: Restart and Persistence

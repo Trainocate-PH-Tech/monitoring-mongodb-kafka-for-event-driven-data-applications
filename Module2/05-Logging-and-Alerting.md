@@ -13,6 +13,8 @@ docker compose -f mongodb/docker-compose.yml logs --since=10m mongodb
 docker compose -f mongodb/docker-compose.yml exec mongodb df -h /data/db /backups
 ```
 
+**Expected output:** health/capacity values, index counters, recent MongoDB log lines, and filesystem rows for data/backup storage. **Meaning:** the bundle covers role, workload, errors, and capacity without assuming one signal explains all failures.
+
 Native structured snapshot:
 
 ```bash
@@ -28,6 +30,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
       assertions: s.asserts
     });'
 ```
+
+**Expected output:** a JSON object with `writablePrimary: true`, current/available connections, operation counters, network totals, and assertion counts. **Meaning:** this is a point-in-time server baseline; production alerting should evaluate rate and duration.
 
 ## Alert Design
 

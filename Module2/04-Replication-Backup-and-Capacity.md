@@ -17,6 +17,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
     printjson({set: hello.setName, writablePrimary: hello.isWritablePrimary, members: status.members.map(m => ({name: m.name, state: m.stateStr, health: m.health, optimeDate: m.optimeDate}))});'
 ```
 
+**Expected output:** both views report replica set `rs0`, writable primary `true`, and one member `mongodb:27017` in `PRIMARY` state with health `1`. **Meaning:** the node accepts writes but has no redundant member.
+
 This one-member replica set can demonstrate state and change streams but has no failover or redundant copy.
 
 ## Backup and Restore Drill
@@ -29,6 +31,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
   mongodump --uri 'mongodb://localhost:27017/?replicaSet=rs0&directConnection=true' \
   --db workshop --archive="/backups/$BACKUP_NAME" --gzip
 ```
+
+**Expected output:** export assignment is silent; `mongodump` reports writing each `workshop` collection and the number of documents dumped. **Meaning:** a timestamped compressed archive was created in the persistent backup volume.
 
 List evidence and restore to an isolated namespace:
 
@@ -45,6 +49,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
     printjson({source: db.getSiblingDB("workshop").orders.countDocuments({}), restored: db.getSiblingDB("workshop_restore").orders.countDocuments({}), indexes: db.getSiblingDB("workshop_restore").orders.getIndexes()})'
 ```
 
+**Expected output:** `ls` shows a nonzero archive; `mongorestore` reports zero failures; the final object shows equal source/restored counts and required indexes. **Meaning:** the archive is readable and restores into an isolated namespace with matching logical content.
+
 Counts and required indexes must match. A backup without a tested restore is not restore-readiness evidence.
 
 Clean only the validation database; keep the archive as workshop evidence:
@@ -54,6 +60,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
   mongosh 'mongodb://localhost:27017/workshop_restore?replicaSet=rs0&directConnection=true' \
   --quiet --eval 'db.dropDatabase()'
 ```
+
+**Expected output:** `{ ok: 1, dropped: 'workshop_restore' }`. **Meaning:** only the validation database was removed; the source database and backup archive remain.
 
 ## Capacity Review
 

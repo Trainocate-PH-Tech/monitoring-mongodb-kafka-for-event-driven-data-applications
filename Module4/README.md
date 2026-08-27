@@ -33,12 +33,16 @@ docker compose -f kafka/docker-compose.yml up -d --wait
 docker compose -f connect/docker-compose.yml up -d --build --wait
 ```
 
+**Expected output:** MongoDB, Kafka, and Connect each finish `Healthy`; the first Connect build also reports a checksum-valid MongoDB connector download and image build. **Meaning:** the worker can reach both backing-service Docker networks.
+
 Verify REST and installed plugins:
 
 ```bash
 python demo/connect_admin.py plugins
 curl -fsS http://localhost:8083/connector-plugins | jq
 ```
+
+**Expected output:** JSON entries include `com.mongodb.kafka.connect.MongoSourceConnector` and `MongoSinkConnector`, both version `3.0.0`. **Meaning:** the worker REST API is reachable and both plugins were discovered.
 
 Expected plugin classes include `MongoSourceConnector` and `MongoSinkConnector`.
 
@@ -77,6 +81,8 @@ for topic in workshop-cdc.workshop.connector_source workshop-connect-dlq; do
     --delete --if-exists --topic "$topic"
 done
 ```
+
+**Expected output:** most successful REST/topic operations are silent because output is redirected; collection drops may print booleans. A later connector list is empty and module topics/collections are absent. **Meaning:** connector offsets and only Module 4 resources were removed; shared Connect internal topics remain.
 
 The reset explicitly stops each connector and clears its framework-managed offsets before deletion. The worker’s internal config, offset, and status topics remain in Kafka because other connectors could share them. Offset resets and collection/topic recreation are destructive teaching controls, not a production replay procedure.
 

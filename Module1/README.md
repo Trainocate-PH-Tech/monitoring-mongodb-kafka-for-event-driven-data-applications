@@ -86,6 +86,8 @@ python3 --version
 jq --version
 ```
 
+**Expected output:** four version strings, including Docker/Compose, Python 3.10 or newer, and `jq-1.x`. **Meaning:** the host has every tool required by both implementations; version text varies by platform.
+
 On Windows, use `py --version` if `python3` is unavailable. The full CLI pipelines target Bash on Linux, macOS, WSL, or Git Bash.
 
 ## One-Time Python Setup
@@ -98,6 +100,8 @@ source .venv/bin/activate
 python -m pip install -r demo/requirements.txt
 ```
 
+**Expected output:** virtual-environment creation/activation is normally silent; pip ends with successful installation of `pymongo` and `confluent-kafka` or reports they are already satisfied. **Meaning:** Python dependencies are isolated in `.venv`.
+
 Windows PowerShell:
 
 ```powershell
@@ -105,6 +109,8 @@ py -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r demo/requirements.txt
 ```
+
+**Expected output:** as above, pip completes without an error. **Meaning:** the PowerShell session is using the workshop virtual environment.
 
 Activate this environment in every terminal that runs a Python demo program.
 
@@ -116,6 +122,8 @@ docker compose -f kafka/docker-compose.yml up -d --wait
 python demo/setup_demo.py
 ```
 
+**Expected output:** Compose reports both containers `Healthy`; setup reports MongoDB reachable, both topics ready, and `[ready] The workshop demo is ready`. **Meaning:** all baseline dependencies and resources are available.
+
 Verify the baseline:
 
 ```bash
@@ -123,6 +131,8 @@ docker compose -f mongodb/docker-compose.yml ps
 docker compose -f kafka/docker-compose.yml ps
 python demo/inspect_mongodb.py health
 ```
+
+**Expected output:** both `ps` tables show `Up (healthy)`; MongoDB reports replica set `rs0`, writable primary `True`, and member state `PRIMARY`. **Meaning:** process and database-role health agree.
 
 Both containers should be healthy, and MongoDB should report `rs0` with one writable primary.
 
@@ -137,6 +147,8 @@ export CLI_GROUP=workshop-order-processor-cli
 export CLI_COLLECTION=orders_cli
 ```
 
+**Expected output:** no output. Verify with `printf '%s\n' "$CLI_TOPIC" "$CLI_GROUP"`, which should print the configured names. **Meaning:** the current shell will expand commands to the isolated CLI resources.
+
 Create the isolated CLI topics:
 
 ```bash
@@ -150,6 +162,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --bootstrap-server localhost:9092 --create --if-not-exists \
   --topic "$CLI_DLQ_TOPIC" --partitions 1 --replication-factor 1
 ```
+
+**Expected output:** `Created topic workshop-orders-cli.` and `Created topic workshop-orders-cli-dlq.`, or an already-exists-safe result because `--if-not-exists` was used. **Meaning:** the CLI source and DLQ topics are ready without changing Python resources.
 
 The Python and CLI paths are intentionally isolated so they can be compared without sharing records, offsets, or MongoDB documents.
 
@@ -194,6 +208,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
   --quiet --eval 'db.orders_cli.drop()'
 ```
 
+**Expected output:** group deletion succeeds or is silently ignored when absent; both topics are recreated; `mongosh` prints `true` if `orders_cli` existed or `false` if absent. **Meaning:** only the exported CLI group, topics, and collection were reset.
+
 ## Reset Between Walkthroughs
 
 Use the scoped reset when a walkthrough requests a clean state:
@@ -201,6 +217,8 @@ Use the scoped reset when a walkthrough requests a clean state:
 ```bash
 python demo/setup_demo.py --reset
 ```
+
+**Expected output:** scoped delete/drop lines followed by topic-ready lines and `[ready]`. **Meaning:** the Python resources are empty and ready; CLI resources are unaffected.
 
 > [!WARNING]
 > This deletes and recreates `workshop-orders` and `workshop-orders-dlq`, and drops `workshop.orders`. It does not affect other Kafka topics or MongoDB collections.
@@ -227,5 +245,7 @@ Stop Python consumers with `Ctrl+C`. Preserve service data while stopping contai
 docker compose -f kafka/docker-compose.yml down
 docker compose -f mongodb/docker-compose.yml down
 ```
+
+**Expected output:** Compose reports both containers stopped and removed while named volumes remain. **Meaning:** services are offline, but workshop data will be available at the next `up`.
 
 Do not use `--volumes` unless the instructor explicitly requests a complete data reset.

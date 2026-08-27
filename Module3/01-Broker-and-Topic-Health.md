@@ -15,6 +15,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --describe --topic workshop-orders
 ```
 
+**Expected output:** the API command lists broker 1 and supported request versions; topic description lists three partitions with `Leader: 1`, `Replicas: 1`, and `Isr: 1`. **Meaning:** the broker responds and serves every partition, with no redundancy beyond itself.
+
 Every partition needs a valid leader. In this one-broker lab, replicas and ISR each contain broker 1.
 
 ## Produce and Measure
@@ -35,6 +37,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --topic workshop-orders
 ```
 
+**Expected output:** epoch timestamps bracket the test; the producer reports 2,000 deliveries; the second offset total is exactly 2,000 higher than the first. **Meaning:** dividing the offset delta by elapsed seconds estimates record throughput for this run.
+
 Throughput for this observation is `offset delta / elapsed seconds`. It is an application-level estimate, not the broker byte-rate metric a production monitoring system would scrape.
 
 ## Python and Disk Evidence
@@ -44,6 +48,8 @@ python demo/monitor_kafka.py
 docker compose -f kafka/docker-compose.yml exec kafka du -sh /var/lib/kafka/data
 docker compose -f kafka/docker-compose.yml stats --no-stream kafka
 ```
+
+**Expected output:** a partition table with end/lag/skew totals, a log-directory size, and Docker CPU/memory/I/O values. **Meaning:** topic distribution, stored bytes, and process resource use are separate measurements.
 
 The Python table shows leader, replica/ISR counts, committed offsets, end offsets, lag, and skew. A group with no commits is displayed from offset zero.
 

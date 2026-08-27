@@ -31,11 +31,15 @@ docker compose -f kafka/docker-compose.yml up -d --wait
 python demo/setup_demo.py --reset
 ```
 
+**Expected output:** both services become healthy and setup ends `[ready]` with a three-partition empty order topic. **Meaning:** Kafka labs begin from known topic state.
+
 Python monitoring:
 
 ```bash
 python demo/monitor_kafka.py
 ```
+
+**Expected output:** a partition table followed by `total_end_offsets`, `total_lag`, and `partition_skew_ratio`. Immediately after reset, totals and skew are zero. **Meaning:** the helper summarizes structure, backlog, and distribution.
 
 The same evidence is available through scripts in `/opt/kafka/bin` inside the Kafka container. Exact partition numbers and offsets vary; assess invariants and movement.
 
@@ -48,5 +52,7 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
   --delete --if-exists --topic workshop-lifecycle
 ```
+
+**Expected output:** deletion succeeds silently or reports no error when already absent. **Meaning:** only the isolated lifecycle topic is cleaned up.
 
 This lab has one broker and replication factor one. It can show metadata and failure symptoms, but not failover, ISR loss between replicas, or a zero-downtime rolling restart.

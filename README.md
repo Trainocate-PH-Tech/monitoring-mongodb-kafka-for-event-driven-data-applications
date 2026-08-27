@@ -119,6 +119,126 @@ Useful bootstrap servers:
 - From applications on the host: `localhost:9092`
 - From a future container on the same Docker network: `kafka:19092`
 
+### Kafka producer and consumer primer
+
+A **producer** sends records to a Kafka topic. A **consumer** reads records from a
+topic. Most exercises use one of two interfaces for those roles:
+
+| Role | Python demo | Kafka command-line utility |
+| --- | --- | --- |
+| Producer | `python demo/producer.py` | `/opt/kafka/bin/kafka-console-producer.sh` |
+| Consumer | `python demo/consumer.py` | `/opt/kafka/bin/kafka-console-consumer.sh` |
+
+The `kafka-console-producer.sh` and `kafka-console-consumer.sh` files are standard
+utilities supplied by the official Apache Kafka distribution in the Kafka
+container. They were not created or customized for this repository. The
+`/opt/kafka/bin` path exists inside the container, so the commands invoke them
+through `docker compose exec kafka`; they do not need to be installed on the
+host.
+
+This is the anatomy of the common command prefix:
+
+```text
+docker compose -f kafka/docker-compose.yml exec -T kafka /opt/kafka/bin/<tool>.sh
+|              selects this Compose project |   |      command inside the container      |
+|                                             |   service name
+|                                             disable a pseudo-terminal for piped input
+```
+
+Both utilities connect to the broker with `--bootstrap-server localhost:9092`.
+Here, `localhost` means the Kafka container itself because the utility is running
+inside that container. The `--topic` option selects the named stream of records.
+
+The producer does not send directly to a particular consumer. Kafka retains each
+record in the topic according to its retention policy, and consumers track their
+own positions using offsets. Reading a record does not delete it. Consumers in
+the same group share the topic's partitions; consumers in different groups can
+independently read the same records. This is why an exercise may produce once but
+consume or replay the data with more than one group.
+
+#### Console producer
+
+The console producer reads one input line at a time from standard input and
+publishes each line as one Kafka record. For example:
+
+```bash
+printf '%s\n' '{"event":"workshop-started"}' | \
+  docker compose -f kafka/docker-compose.yml exec -T kafka \
+  /opt/kafka/bin/kafka-console-producer.sh \
+  --bootstrap-server localhost:9092 --topic workshop-events
+```
+
+**Expected output:** no output when the record is accepted. The shell prompt
+returns after `printf` closes the pipe. **Meaning:** silence is normal for a
+successful console-producer run; use a consumer or inspect topic offsets to prove
+that Kafka stored the record. The `-T` option is important in pipelines because
+it prevents Docker from allocating an interactive terminal.
+
+Some exercises send a key and JSON value on the same line:
+
+```text
+CUST-1001|{"event_type":"order.created","order_id":"cli-ORD-0001"}
+```
+
+They add these producer options:
+
+```text
+--reader-property parse.key=true --reader-property key.separator='|'
+```
+
+The portion before the first `|` becomes the Kafka record key, and the portion
+after it becomes the value. Kafka uses the key to choose a partition, which lets
+records with the same key retain their order within that partition. The separator
+is only input syntax and is not stored as part of the key or value.
+
+Without piped input, the producer is interactive: type one record per line and
+press `Ctrl+D` on Linux/macOS to close its input. Use `Ctrl+C` to cancel it.
+
+#### Console consumer
+
+The console consumer prints each record value it receives, normally one record
+per line:
+
+```bash
+docker compose -f kafka/docker-compose.yml exec kafka \
+  /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic workshop-events \
+  --from-beginning --max-messages 1
+```
+
+Representative output:
+
+```text
+{"event":"workshop-started"}
+Processed a total of 1 messages
+```
+
+**Meaning:** the consumer read one stored record and then stopped because of
+`--max-messages 1`. The final summary may be written to standard error, but it is
+informational.
+
+Frequently used consumer options are:
+
+| Option | Meaning |
+| --- | --- |
+| `--from-beginning` | Start at the earliest retained record when there is no applicable saved group position. |
+| `--max-messages N` | Exit successfully after printing `N` records. Useful for deterministic exercises. |
+| `--group GROUP_ID` | Join a named consumer group and save progress as committed offsets. |
+| `--property print.key=true` or `--formatter-property print.key=true` | Print the record key as well as its value; the accepted spelling depends on the selected formatter and Kafka command version. |
+| `--property key.separator=' | '` or `--formatter-property key.separator=' | '` | Put a visible separator between a printed key and value. |
+| `--timeout-ms N` | Stop after `N` milliseconds without a record. Kafka may print a `TimeoutException`; in an observation command, that usually means no additional record arrived rather than that the broker failed. |
+
+Without `--max-messages` or a timeout, a consumer is expected to keep waiting for
+new records. Stop it with `Ctrl+C`. Also remember that `--from-beginning` does not
+erase a named group's committed offsets: a group normally resumes from its saved
+position. Use a new group ID when an exercise requires an independent replay.
+
+The console tools expose Kafka directly and are useful for inspection. The Python
+programs add the workshop's application behavior: structured order generation,
+validation, MongoDB upserts, error handling, and deliberate fault controls. A
+console consumer printing a record proves that Kafka can return it; it does not
+prove that the Python consumer processed it or that MongoDB stored it.
+
 ### Kafka smoke test
 
 Create and inspect a topic:

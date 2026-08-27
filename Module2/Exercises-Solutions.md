@@ -20,6 +20,8 @@ python demo/inspect_mongodb.py query --customer-id CUST-1001
 python demo/monitor_mongodb.py index-usage
 ```
 
+**Expected output and meaning:** index creation succeeds, explain contains `IXSCAN`, examined work approaches returned rows, and usage lists `customer_id_1`; together these prove benefit and observability.
+
 Expected change: `COLLSCAN` becomes `IXSCAN`, returned results remain identical, and examined work falls close to returned rows. Record index-byte growth. Roll back with `python demo/inspect_mongodb.py drop-index` if an agreed write, storage, or query regression boundary is crossed.
 
 ## Solution 4: Restore Readiness

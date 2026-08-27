@@ -12,6 +12,8 @@ python demo/producer.py --interval-ms 0
 python demo/consumer.py --max-messages 20
 ```
 
+**Expected output and meaning:** setup is ready, the producer delivers 20, and the consumer processes 20 with zero rejected; this establishes the solution's clean end-to-end run.
+
 Topic health and source counts:
 
 ```bash
@@ -26,6 +28,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --topic workshop-orders
 ```
 
+**Expected output and meaning:** three led/in-sync partitions and end offsets totaling 20 prove source-topic structure and record count.
+
 Expected invariant: three partitions have leaders and in-sync replicas; the sum of their end offsets is 20.
 
 Group evidence:
@@ -36,6 +40,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --bootstrap-server localhost:9092 \
   --group workshop-order-processor --describe
 ```
+
+**Expected output and meaning:** every row shows `CURRENT-OFFSET = LOG-END-OFFSET` and `LAG 0`, proving the group caught up.
 
 Expected invariant: `CURRENT-OFFSET` equals `LOG-END-OFFSET`, and `LAG` is zero for every displayed partition.
 
@@ -48,6 +54,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
   mongosh 'mongodb://localhost:27017/workshop?replicaSet=rs0&directConnection=true' \
   --quiet --eval 'printjson(db.orders.findOne())'
 ```
+
+**Expected output and meaning:** stats report 20 documents and `findOne()` prints a transformed order; this proves sink count and document shape.
 
 Expected count: 20. Use the Kafka console consumer from walkthrough 01 to locate the selected `order_id`. `customer_id`, `product_id`, `quantity`, `unit_price`, and `created_at` should match. MongoDB additionally contains processing fields.
 
@@ -70,6 +78,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
 python demo/inspect_mongodb.py health
 ```
 
+**Expected output and meaning:** Kafka is healthy with led partitions and MongoDB is writable `PRIMARY`; the bad worker URI is therefore the first failed layer.
+
 The producer already advanced topic offsets. Kafka has leaders, and MongoDB is a writable primary. The worker fails before processing because its MongoDB URI points to unused port `27018`.
 
 Diagnosis:
@@ -87,6 +97,8 @@ Recover:
 python demo/consumer.py --max-messages 20
 python demo/inspect_mongodb.py stats
 ```
+
+**Expected output and meaning:** 20 records are processed and stats report 20 documents, proving recovery from retained Kafka data.
 
 Then describe the group and confirm zero lag. MongoDB should contain 20 documents because Kafka retained the unprocessed source records.
 
@@ -110,6 +122,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --bootstrap-server localhost:9092 --topic workshop-orders
 ```
 
+**Expected output and meaning:** approximately 200 valid records are concentrated on one partition, with the invalid record possibly elsewhere; this proves skew.
+
 One partition contains the valid burst; the poison record may hash to another partition. The exact partition numbers are not important.
 
 Group and worker evidence:
@@ -123,6 +137,8 @@ python demo/inspect_mongodb.py health
 python demo/inspect_mongodb.py stats
 ```
 
+**Expected output and meaning:** group lag remains around the failed position, MongoDB health stays normal, and its count reflects only work completed before failure.
+
 The worker output identifies malformed JSON at a partition and offset. MongoDB remains healthy. Its document count reflects only successfully processed records and may vary depending on which partition the worker reads first.
 
 Recover while preserving the poison record:
@@ -130,6 +146,8 @@ Recover while preserving the poison record:
 ```bash
 python demo/consumer.py --on-error dlq
 ```
+
+**Expected output and meaning:** a `[dlq]` line appears and processing resumes; the poison record is preserved instead of repeatedly blocking the group.
 
 After the DLQ message appears and lag drains, stop the consumer. Inspect the DLQ:
 
@@ -140,6 +158,8 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --topic workshop-orders-dlq --from-beginning \
   --max-messages 1 --formatter-property print.headers=true
 ```
+
+**Expected output and meaning:** one malformed payload appears with source topic/partition/offset/error headers, providing investigation and replay context.
 
 Valid alerts include sustained group lag, no offset movement while end offsets grow, worker exit/task failure, DLQ record count greater than zero, or a partition-throughput imbalance.
 
@@ -171,6 +191,8 @@ python demo/inspect_mongodb.py query --customer-id CUST-1001
 python demo/inspect_mongodb.py stats
 ```
 
+**Expected output and meaning:** effective topic config, the current query plan, and index/storage size form the measurable pre-change baseline.
+
 Kafka rollback:
 
 ```bash
@@ -181,11 +203,15 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --alter --delete-config retention.ms
 ```
 
+**Expected output and meaning:** Kafka reports a completed update; a subsequent description omits the dynamic override, proving rollback.
+
 MongoDB rollback after dropping the index:
 
 ```bash
 python demo/inspect_mongodb.py create-index
 ```
+
+**Expected output and meaning:** creation reports `customer_id_1`; a repeated explain should return to `IXSCAN`, proving database rollback.
 
 The native CLI equivalent uses `kafka-configs.sh` with `$CLI_TOPIC` and `mongosh` against `orders_cli`, as shown in walkthrough 03. Its rollback is `--delete-config retention.ms` plus `db.orders_cli.createIndex({customer_id: 1}, {name: "customer_id_1"})`.
 
@@ -202,12 +228,16 @@ python demo/consumer.py --max-messages 100
 python demo/inspect_mongodb.py stats
 ```
 
+**Expected output and meaning:** 100 records are delivered/processed and MongoDB reports 100 documents, establishing persistence-test state.
+
 Capture end offsets and group state, then restart:
 
 ```bash
 docker compose -f kafka/docker-compose.yml restart kafka
 docker compose -f kafka/docker-compose.yml up -d --wait
 ```
+
+**Expected output and meaning:** Kafka returns to `Healthy`; unchanged offsets afterward prove named-volume persistence through restart.
 
 Repeat the offset and group commands. End offsets and committed offsets should remain because Kafka uses its named volume.
 
@@ -217,6 +247,8 @@ Publish and process the next batch:
 python demo/producer.py --interval-ms 0
 python demo/consumer.py --max-messages 20
 ```
+
+**Expected output and meaning:** another 20 records process successfully; offsets advance and MongoDB grows from 100 to 120 rather than restarting at zero.
 
 Expected invariants:
 
@@ -247,6 +279,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
   --quiet --eval 'printjson({total: db.orders.countDocuments({}), missingRegion: db.orders.countDocuments({region: {$exists: false}}), missingCustomer: db.orders.countDocuments({customer_id: {$exists: false}}), invalidQuantity: db.orders.countDocuments({quantity: {$not: {$gt: 0}}})})'
 ```
 
+**Expected output and meaning:** `total` remains 20 while at least one defect counter is nonzero, proving semantic drift despite availability.
+
 Inspect affected documents by replacing the filter as appropriate:
 
 ```bash
@@ -254,6 +288,8 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
   mongosh 'mongodb://localhost:27017/workshop?replicaSet=rs0&directConnection=true' \
   --quiet --eval 'db.orders.find({region: {$exists: false}}).forEach(printjson)'
 ```
+
+**Expected output and meaning:** affected documents are printed with the required field absent, identifying repair scope without guessing.
 
 Zero lag proves that the worker advanced through Kafka; it does not prove semantic equivalence between source and sink. The source Kafka event or authoritative transactional system should determine the correct value. Production repair should be auditable and idempotent, using a controlled replay/backfill or approved correction.
 

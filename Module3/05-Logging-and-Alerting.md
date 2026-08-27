@@ -10,6 +10,8 @@ docker compose -f kafka/docker-compose.yml exec kafka du -sh /var/lib/kafka/data
 docker compose -f kafka/docker-compose.yml stats --no-stream kafka
 ```
 
+**Expected output:** Kafka is `Up (healthy)`, recent logs contain normal startup/request activity unless a fault occurred, the monitor prints offsets/lag/skew, and disk/container stats print current resource values. **Meaning:** the bundle spans availability, errors, backlog, distribution, storage, and process load.
+
 Capture topic configuration separately because lifecycle risk is not visible from process health.
 
 ## Alert Matrix
