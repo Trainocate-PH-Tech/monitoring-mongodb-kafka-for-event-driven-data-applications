@@ -153,19 +153,25 @@ docker compose -f mongodb/docker-compose.yml down
 
 ## Apache Kafka
 
-The Kafka environment runs Apache Kafka 4.3.1 as a single combined KRaft broker and controller. ZooKeeper is not required.
+The Kafka environment runs Apache Kafka 4.3.1 as a single combined KRaft broker and controller. ZooKeeper is not required. The same Compose project runs Kafbat UI 1.5.0 as a local visual interface for the broker.
 
-Start Kafka and wait until it is ready:
+Start Kafka and Kafbat UI, then wait until both are ready:
 
 ```bash
 docker compose -f kafka/docker-compose.yml up -d --wait
 ```
 
-Check its status and logs:
+Check their status:
 
 ```bash
 docker compose -f kafka/docker-compose.yml ps
+```
+
+Follow Kafka or Kafbat logs:
+
+```bash
 docker compose -f kafka/docker-compose.yml logs -f kafka
+docker compose -f kafka/docker-compose.yml logs -f kafbat-ui
 ```
 
 Press `Ctrl+C` to stop following the logs; the container continues to run.
@@ -174,6 +180,33 @@ Useful bootstrap servers:
 
 - From applications on the host: `localhost:9092`
 - From a future container on the same Docker network: `kafka:19092`
+
+### Kafbat UI web interface
+
+Open the local Kafka interface at:
+
+```text
+http://localhost:8080
+```
+
+Select the cluster named `workshop`. No UI login is configured in this local environment. Kafbat connects from its container to the broker through `kafka:19092` and is write-enabled for the independent exercises.
+
+Verify the UI and configured cluster:
+
+```bash
+curl -fsS http://localhost:8080/actuator/health
+curl -fsS http://localhost:8080/api/clusters
+```
+
+The health endpoint should return `{"status":"UP"}` and the cluster endpoint should list `workshop` with status `ONLINE`.
+
+Use these course resources before the command-line-focused Module 3 labs:
+
+- [Kafka Administration with Kafbat UI](KAFKA_UI_GUIDE.md)
+- [Independent Kafka UI Exercises](KAFKA_UI_EXERCISES.md)
+
+> [!WARNING]
+> Kafbat and Kafka are bound to `127.0.0.1`, but neither has application authentication or TLS in this workshop. Do not expose ports `8080` or `9092` to another host. The UI is write-enabled and can delete topics, records, consumer groups, or configuration; use only the isolated `kafbat-ui-*` resources named in the exercises.
 
 ### Kafka producer and consumer primer
 
@@ -328,7 +361,7 @@ docker compose -f kafka/docker-compose.yml exec kafka \
   --from-beginning --max-messages 1
 ```
 
-Stop Kafka without deleting its data:
+Stop Kafka and Kafbat UI without deleting Kafka data:
 
 ```bash
 docker compose -f kafka/docker-compose.yml down
@@ -541,6 +574,7 @@ docker compose -f mongodb/docker-compose.yml logs --tail=100 mongodb
 
 docker compose -f kafka/docker-compose.yml ps
 docker compose -f kafka/docker-compose.yml logs --tail=100 kafka
+docker compose -f kafka/docker-compose.yml logs --tail=100 kafbat-ui
 ```
 
 On the first start, Docker must download the images and initialize the persistent data, so startup can take longer than subsequent runs.
@@ -549,12 +583,12 @@ MongoDB 8.x has a known incompatibility with Linux kernels 6.19 and newer. The s
 
 ### Port already in use
 
-MongoDB requires host port `27017`, and Kafka requires host port `9092`. Stop the application already using the affected port, then start the Compose environment again.
+MongoDB requires host ports `27017` and `8081`; Kafka requires host ports `9092` and `8080`. Stop the application already using the affected port, then start the Compose environment again.
 
 On Linux, identify listeners with:
 
 ```bash
-ss -ltnp | grep -E ':(27017|9092)\b'
+ss -ltnp | grep -E ':(27017|8081|9092|8080)\b'
 ```
 
 ### Reset a broken local environment

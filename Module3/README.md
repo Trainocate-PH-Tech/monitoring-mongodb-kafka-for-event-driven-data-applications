@@ -22,6 +22,15 @@ This 75-minute module turns the Kafka outline into evidence-driven labs using th
 
 Complete [Exercises.md](Exercises.md), then compare with [Exercises-Solutions.md](Exercises-Solutions.md).
 
+## Visual Primer and Independent Exercise
+
+Before the command-line walkthroughs, learners who are new to Kafka can use the write-enabled local Kafbat UI at `http://localhost:8080`:
+
+- [Kafka Administration with Kafbat UI](../KAFKA_UI_GUIDE.md) explains the visual cluster, topic, partition, message, consumer-group, configuration, and troubleshooting views.
+- [Independent Kafka UI Exercises](../KAFKA_UI_EXERCISES.md) provides a separate progressive exercise using only `kafbat-ui-*` topics and groups.
+
+These resources do not replace or modify this module's walkthroughs, [Exercises.md](Exercises.md), solutions, or the root-level labs. Their final steps translate every visual observation into the matching Kafka command-line evidence.
+
 ## Setup
 
 ```bash
@@ -31,7 +40,7 @@ docker compose -f kafka/docker-compose.yml up -d --wait
 python demo/setup_demo.py --reset
 ```
 
-**Expected output:** both services become healthy and setup ends `[ready]` with a three-partition empty order topic. **Meaning:** Kafka labs begin from known topic state.
+**Expected output:** MongoDB, Kafka, and Kafbat UI become healthy and setup ends `[ready]` with a three-partition empty order topic. **Meaning:** Kafka labs begin from known topic state and the visual interface is available at `http://localhost:8080`.
 
 Python monitoring:
 
