@@ -1329,9 +1329,32 @@ These exercises demonstrate how a query that scans many documents can become mor
 
 mongo-express does not display a MongoDB query plan, `executionStats`, or server-only execution time. The browser measurements below include the mongo-express request, MongoDB work, network transfer, document counting, and page rendering. Use them as approximate workshop observations, not as production proof or a promised speedup. Production validation still requires `explain("executionStats")`, profiler or slow-query evidence, and representative workload monitoring.
 
-### Prepare and Measure Each Exercise
+### Import the Exercise Data with mongo-express
 
-Each seed command drops one specifically named exercise collection before inserting 50,000 deterministic documents. Dropping the collection also removes its indexes so the first measurement is genuinely unindexed. Run these commands only against `mongodb_express_guide`.
+The repository contains one pre-generated Extended JSON file for each exercise. Each file contains a JSON array of 50,000 deterministic documents. Dates and decimal values use Extended JSON so mongo-express imports them as their intended BSON types.
+
+| Exercise collection | Import file |
+| --- | --- |
+| `slow_query_claim_lookup` | [`mongodb/mongo-express-imports/slow_query_claim_lookup.json`](mongodb/mongo-express-imports/slow_query_claim_lookup.json) |
+| `slow_query_claim_queue` | [`mongodb/mongo-express-imports/slow_query_claim_queue.json`](mongodb/mongo-express-imports/slow_query_claim_queue.json) |
+| `slow_query_policy_renewals` | [`mongodb/mongo-express-imports/slow_query_policy_renewals.json`](mongodb/mongo-express-imports/slow_query_policy_renewals.json) |
+| `slow_query_provider_payments` | [`mongodb/mongo-express-imports/slow_query_provider_payments.json`](mongodb/mongo-express-imports/slow_query_provider_payments.json) |
+| `slow_query_investigation_tags` | [`mongodb/mongo-express-imports/slow_query_investigation_tags.json`](mongodb/mongo-express-imports/slow_query_investigation_tags.json) |
+
+Prepare one exercise collection at a time:
+
+1. Open `mongodb_express_guide` in mongo-express and verify the database name at the top of the page.
+2. If the exercise collection already exists, select **Del** only beside its exact name, type that collection name in the confirmation dialog, and confirm. This removes earlier documents and exercise indexes so the new run has a valid unindexed baseline.
+3. In **Create collection**, enter the exact collection name from the table and select **Create collection**.
+4. Return to the `mongodb_express_guide` database page. Locate the new collection's row and select **Import**.
+5. In the file picker, open this repository, browse to `mongodb/mongo-express-imports`, and select the matching `.json` file.
+6. Keep the page open while the file uploads. A successful import displays an alert containing `50000 document(s) inserted`.
+7. Select **View** for the collection. Confirm **Documents** is `50000`, **Indexes** is `1`, and the **Indexes** table contains only `_id_`.
+
+> [!IMPORTANT]
+> Import appends documents; it does not replace the collection. Do not upload the same file twice. If the count is not exactly 50,000 or a user-created index already exists, delete and recreate only that exercise collection before continuing. Never perform these reset steps in `workshop` or another database.
+
+### Measure Before and After the Index
 
 Use the same measurement procedure for all five exercises:
 
@@ -1341,7 +1364,7 @@ Use the same measurement procedure for all five exercises:
 4. Enter the stated query in mongo-express. Perform any stated sort steps, then select **Find** once as a warm-up.
 5. Select **Find** five more times. For each run, select the document request whose URL contains `/db/mongodb_express_guide/<collection-name>/`, open **Timing**, and record its total duration.
 6. Use the middle value of the five ordered durations as the median. Do not compare the fastest unindexed request with the slowest indexed request.
-7. Select **New Index**, replace the editor content with the exercise's index document, and select **Save**.
+7. Complete the exercise's **After: Create the Index and Compare** steps. Select **New Index**, replace the editor content with the specified index document, and select **Save**.
 8. Refresh the collection page. Confirm the generated index name, index count, and total index size.
 9. Repeat the identical query, sort, warm-up, and five timed requests. The returned count and ordering must remain unchanged.
 
@@ -1361,32 +1384,11 @@ Timing can vary because of CPU load, caches, storage, and browser rendering. If 
 
 This support lookup should return one claim, but without an index MongoDB must inspect the collection to locate it.
 
-Seed the collection:
+#### Populate in mongo-express
 
-```bash
-docker compose -f mongodb/docker-compose.yml exec mongodb \
-  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
-  --quiet --eval '
-    const name = "slow_query_claim_lookup";
-    db.getCollection(name).drop();
-    const collection = db.getCollection(name);
-    for (let start = 0; start < 50000; start += 1000) {
-      const batch = [];
-      for (let i = start; i < start + 1000; i++) {
-        batch.push({
-          exerciseId: "SLOW-QUERY-01",
-          claimNumber: `CLM-${String(i).padStart(6, "0")}`,
-          customerId: `CUS-${String(i % 10000).padStart(5, "0")}`,
-          status: i % 4 === 0 ? "OPEN" : "CLOSED",
-          lossType: ["collision", "theft", "water", "fire"][i % 4]
-        });
-      }
-      collection.insertMany(batch);
-    }
-    printjson({documents: collection.countDocuments({}), indexes: collection.getIndexes().length});'
-```
+Create `slow_query_claim_lookup` and import [`slow_query_claim_lookup.json`](mongodb/mongo-express-imports/slow_query_claim_lookup.json) using the earlier import procedure. Verify 50,000 documents and only `_id_` before measuring.
 
-Expected seed evidence is `documents: 50000` and `indexes: 1`.
+#### Before: Query Without the Index
 
 In the **Simple** tab, enter:
 
@@ -1396,49 +1398,27 @@ In the **Simple** tab, enter:
 | Value | `CLM-049999` |
 | Type | `String` |
 
-The query must return exactly one document. Measure it, then create this index:
+The query must return exactly one document. Complete the warm-up and five-request timing sample, then record the **Before index** column in the evidence table.
+
+#### After: Create the Index and Compare
+
+Select **New Index** and create:
 
 ```json
 {"claimNumber": 1}
 ```
 
-The generated name is `claimNumber_1`. Repeat the measurement and explain why an exact lookup benefits from an index whose first key is `claimNumber`.
+The generated name is `claimNumber_1`. Confirm the index count is now two and record the new total index size. Repeat the identical query and timing sample, complete the **After index** column, and confirm exactly one document still matches. Explain why an exact lookup benefits from an index whose first key is `claimNumber`.
 
 ### Slow Query Exercise 2: Sort an Open-Claims Work Queue
 
 An adjuster needs open claims ordered by highest priority first and, within a priority, oldest report first. The index must support both the equality filter and the requested order.
 
-Seed the collection:
+#### Populate in mongo-express
 
-```bash
-docker compose -f mongodb/docker-compose.yml exec mongodb \
-  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
-  --quiet --eval '
-    const name = "slow_query_claim_queue";
-    db.getCollection(name).drop();
-    const collection = db.getCollection(name);
-    for (let start = 0; start < 50000; start += 1000) {
-      const batch = [];
-      for (let i = start; i < start + 1000; i++) {
-        batch.push({
-          exerciseId: "SLOW-QUERY-02",
-          claimNumber: `QUEUE-${String(i).padStart(6, "0")}`,
-          status: i % 5 === 0 ? "OPEN" : "CLOSED",
-          priority: 1 + (i % 5),
-          reportedAt: new Date(Date.UTC(2026, 0, 1, 0, i)),
-          adjusterRegion: ["NORTH", "SOUTH", "EAST", "WEST"][i % 4]
-        });
-      }
-      collection.insertMany(batch);
-    }
-    printjson({
-      documents: collection.countDocuments({}),
-      openClaims: collection.countDocuments({status: "OPEN"}),
-      indexes: collection.getIndexes().length
-    });'
-```
+Create `slow_query_claim_queue` and import [`slow_query_claim_queue.json`](mongodb/mongo-express-imports/slow_query_claim_queue.json). Verify 50,000 documents and only `_id_`.
 
-Expected evidence is 50,000 documents, 10,000 open claims, and one index.
+#### Before: Filter and Sort Without the Index
 
 On the **Advanced** tab, enter:
 
@@ -1446,58 +1426,29 @@ On the **Advanced** tab, enter:
 {"status": "OPEN"}
 ```
 
-Select **Find**, select the `priority` heading twice so it shows descending order, and then select `reportedAt` once so it shows ascending order. Confirm that both sort indicators remain visible. Use this filtered and sorted request for all timing samples.
+Select **Find**, select the `priority` heading twice so it shows descending order, and then select `reportedAt` once so it shows ascending order. Confirm that both sort indicators remain visible and 10,000 claims match. Use this filtered and sorted request for the warm-up and five-request **Before index** timing sample.
 
-Create:
+#### After: Create the Compound Index and Compare
+
+Select **New Index** and create:
 
 ```json
 {"status": 1, "priority": -1, "reportedAt": 1}
 ```
 
-The generated name is `status_1_priority_-1_reportedAt_1`. After creating it, repeat the same filter and sort. Confirm that 10,000 documents still match and that the displayed claims remain in descending priority and ascending report-time order. The equality field comes first, followed by the two sort fields in their requested directions.
+The generated name is `status_1_priority_-1_reportedAt_1`. Confirm the index count is two and record the new total index size. Repeat the same filter, sort, warm-up, and five-request sample for the **After index** column. Confirm that 10,000 documents still match and that the displayed claims remain in descending priority and ascending report-time order. The equality field comes first, followed by the two sort fields in their requested directions.
 
 ### Slow Query Exercise 3: Find Policies in a Renewal Window
 
 The renewal team searches active policies for one carrier and risk state during a date window. This demonstrates a compound index with equality fields before a range field.
 
-Seed the collection:
+#### Populate in mongo-express
 
-```bash
-docker compose -f mongodb/docker-compose.yml exec mongodb \
-  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
-  --quiet --eval '
-    const name = "slow_query_policy_renewals";
-    db.getCollection(name).drop();
-    const collection = db.getCollection(name);
-    const states = ["CA", "NV", "AZ", "OR"];
-    for (let start = 0; start < 50000; start += 1000) {
-      const batch = [];
-      for (let i = start; i < start + 1000; i++) {
-        batch.push({
-          exerciseId: "SLOW-QUERY-03",
-          policyNumber: `POL-${String(i).padStart(6, "0")}`,
-          carrierId: `CAR-${String(i % 10).padStart(2, "0")}`,
-          status: i % 5 === 0 ? "CANCELLED" : "ACTIVE",
-          renewalDate: new Date(Date.UTC(2026, 0, 1 + (i % 365))),
-          risk: {state: states[i % states.length], line: i % 2 === 0 ? "AUTO" : "HOME"}
-        });
-      }
-      collection.insertMany(batch);
-    }
-    const query = {
-      carrierId: "CAR-02",
-      "risk.state": "CA",
-      status: "ACTIVE",
-      renewalDate: {$gte: ISODate("2026-09-01T00:00:00Z"), $lt: ISODate("2026-10-01T00:00:00Z")}
-    };
-    printjson({
-      documents: collection.countDocuments({}),
-      matchingPolicies: collection.countDocuments(query),
-      indexes: collection.getIndexes().length
-    });'
-```
+Create `slow_query_policy_renewals` and import [`slow_query_policy_renewals.json`](mongodb/mongo-express-imports/slow_query_policy_renewals.json). Verify 50,000 documents and only `_id_`.
 
-Expected evidence is 50,000 documents, 206 matching policies, and one index. On the **Advanced** tab, enter the identical query:
+#### Before: Query the Date Range Without the Index
+
+On the **Advanced** tab, enter:
 
 ```javascript
 {
@@ -1511,102 +1462,57 @@ Expected evidence is 50,000 documents, 206 matching policies, and one index. On 
 }
 ```
 
-Measure the request and create:
+Confirm 206 policies match. Complete the warm-up and five-request sample and record the **Before index** evidence.
+
+#### After: Create the Equality-and-Range Index
+
+Select **New Index** and create:
 
 ```json
 {"carrierId": 1, "risk.state": 1, "status": 1, "renewalDate": 1}
 ```
 
-The generated name is `carrierId_1_risk.state_1_status_1_renewalDate_1`. Repeat the exact query and confirm its count is unchanged. The carrier, state, and status equality keys narrow the index scan before MongoDB evaluates the renewal-date interval.
+The generated name is `carrierId_1_risk.state_1_status_1_renewalDate_1`. Confirm two indexes and record the new total index size. Repeat the exact query, warm-up, and five timed requests for the **After index** evidence. Confirm the count remains 206. The carrier, state, and status equality keys narrow the index scan before MongoDB evaluates the renewal-date interval.
 
 ### Slow Query Exercise 4: Review One Provider's Pending Payments
 
 The payment team repeatedly searches a nested provider identifier and workflow status. This demonstrates indexing a nested field as part of a compound key.
 
-Seed the collection:
+#### Populate in mongo-express
 
-```bash
-docker compose -f mongodb/docker-compose.yml exec mongodb \
-  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
-  --quiet --eval '
-    const name = "slow_query_provider_payments";
-    db.getCollection(name).drop();
-    const collection = db.getCollection(name);
-    for (let start = 0; start < 50000; start += 1000) {
-      const batch = [];
-      for (let i = start; i < start + 1000; i++) {
-        batch.push({
-          exerciseId: "SLOW-QUERY-04",
-          paymentReference: `PAY-${String(i).padStart(6, "0")}`,
-          provider: {
-            npi: String(1000000000 + (i % 2000)),
-            name: `Provider ${i % 2000}`
-          },
-          status: i % 3 === 0 ? "PENDING_REVIEW" : "APPROVED",
-          submittedAt: new Date(Date.UTC(2026, 7, 1, 0, i)),
-          amount: NumberDecimal(String(100 + (i % 25000)) + ".00")
-        });
-      }
-      collection.insertMany(batch);
-    }
-    const query = {"provider.npi": "1000001999", status: "PENDING_REVIEW"};
-    printjson({
-      documents: collection.countDocuments({}),
-      matchingPayments: collection.countDocuments(query),
-      indexes: collection.getIndexes().length
-    });'
-```
+Create `slow_query_provider_payments` and import [`slow_query_provider_payments.json`](mongodb/mongo-express-imports/slow_query_provider_payments.json). Verify 50,000 documents and only `_id_`.
 
-Expected evidence is 50,000 documents, eight matching payments, and one index. In **Advanced** query mode, enter:
+#### Before: Query the Nested Field Without the Index
+
+In **Advanced** query mode, enter:
 
 ```json
 {"provider.npi": "1000001999", "status": "PENDING_REVIEW"}
 ```
 
-Measure it and create:
+Confirm eight payments match. Complete the warm-up and five-request sample and record the **Before index** evidence.
+
+#### After: Create the Nested-Field Index and Compare
+
+Select **New Index** and create:
 
 ```json
 {"provider.npi": 1, "status": 1}
 ```
 
-The generated name is `provider.npi_1_status_1`. Repeat the exact query and confirm its count and documents do not change. Explain why indexing `provider.name` would not solve a query whose predicate uses `provider.npi`.
+The generated name is `provider.npi_1_status_1`. Confirm two indexes and record the new total index size. Repeat the exact query, warm-up, and five-request sample for the **After index** evidence. Confirm the same eight payments match. Explain why indexing `provider.name` would not solve a query whose predicate uses `provider.npi`.
 
 ### Slow Query Exercise 5: Find Claims with a Rare Investigation Tag
 
 Claims may have several investigation tags. MongoDB automatically makes an index on an array field multikey, allowing it to locate documents containing one array value.
 
-Seed the collection:
+#### Populate in mongo-express
 
-```bash
-docker compose -f mongodb/docker-compose.yml exec mongodb \
-  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
-  --quiet --eval '
-    const name = "slow_query_investigation_tags";
-    db.getCollection(name).drop();
-    const collection = db.getCollection(name);
-    for (let start = 0; start < 50000; start += 1000) {
-      const batch = [];
-      for (let i = start; i < start + 1000; i++) {
-        const tags = ["standard-review", i % 2 === 0 ? "auto" : "property"];
-        if (i % 4000 === 0) tags.push("catastrophe-watch");
-        batch.push({
-          exerciseId: "SLOW-QUERY-05",
-          claimNumber: `TAG-${String(i).padStart(6, "0")}`,
-          status: i % 4 === 0 ? "OPEN" : "CLOSED",
-          investigationTags: tags,
-          updatedAt: new Date(Date.UTC(2026, 7, 1, 0, i))
-        });
-      }
-      collection.insertMany(batch);
-    }
-    printjson({
-      documents: collection.countDocuments({}),
-      catastropheWatch: collection.countDocuments({investigationTags: "catastrophe-watch"}),
-      indexes: collection.getIndexes().length
-    });'
-```
+Create `slow_query_investigation_tags` and import [`slow_query_investigation_tags.json`](mongodb/mongo-express-imports/slow_query_investigation_tags.json). Verify 50,000 documents and only `_id_`.
 
-Expected evidence is 50,000 documents, 13 matching claims, and one index. On the **Simple** tab, enter:
+#### Before: Query the Array Without the Index
+
+On the **Simple** tab, enter:
 
 | Control | Value |
 | --- | --- |
@@ -1614,13 +1520,17 @@ Expected evidence is 50,000 documents, 13 matching claims, and one index. On the
 | Value | `catastrophe-watch` |
 | Type | `String` |
 
-Measure it and create:
+Confirm 13 claims match. Complete the warm-up and five-request sample and record the **Before index** evidence.
+
+#### After: Create the Multikey Index and Compare
+
+Select **New Index** and create:
 
 ```json
 {"investigationTags": 1}
 ```
 
-The generated name is `investigationTags_1`. Because `investigationTags` contains arrays, MongoDB manages this as a multikey index even though the mongo-express **Attributes** column may not label it as multikey. Repeat the query and confirm the same 13 documents match.
+The generated name is `investigationTags_1`. Confirm two indexes and record the new total index size. Because `investigationTags` contains arrays, MongoDB manages this as a multikey index even though the mongo-express **Attributes** column may not label it as multikey. Repeat the identical query, warm-up, and five-request sample for the **After index** evidence, and confirm the same 13 documents match.
 
 ### Interpret, Roll Back, and Clean Up Safely
 
