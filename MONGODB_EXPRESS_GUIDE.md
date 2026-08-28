@@ -743,7 +743,904 @@ Using only `mongodb_express_guide.practice_courses`:
 9. Delete one document only after filtering it by an exact title.
 10. Produce a short evidence report containing commands, UI observations, result counts, index evidence, and final verification.
 
-## 18. Clean Up Only the Guide Database
+## 18. Exercises
+
+Complete these exercises only in `mongodb_express_guide`. Each exercise uses a separate collection so its documents, indexes, and cleanup actions remain isolated. The small data sets make the plan changes easy to inspect, but elapsed time is not meaningful evidence of performance. Compare the winning plan, `totalDocsExamined`, `totalKeysExamined`, and `nReturned` instead.
+
+### Exercise 1: Prioritize an Adjuster's Claims Work Queue
+
+An adjuster dashboard repeatedly requests open claims in priority order and, within the same priority, oldest report first. The collection also needs to prevent two claims from using the same claim number.
+
+#### Create the Collection and Insert Claims
+
+1. Open `mongodb_express_guide` in mongo-express.
+2. In **Create collection**, enter `exercise_claim_work_queue` and select **Create collection**.
+3. Open the new collection and select **New Document**.
+4. Insert each of these documents separately:
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "IDX-CLAIMS-01",
+     claimNumber: "CLM-26001",
+     status: "OPEN",
+     priority: 3,
+     reportedAt: ISODate("2026-08-25T01:00:00Z"),
+     insured: {customerId: "CUS-1001", name: "Maya Cruz"},
+     loss: {type: "collision", state: "CA"}
+   }
+   ```
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "IDX-CLAIMS-01",
+     claimNumber: "CLM-26002",
+     status: "OPEN",
+     priority: 3,
+     reportedAt: ISODate("2026-08-24T09:30:00Z"),
+     insured: {customerId: "CUS-1002", name: "Luis Reyes"},
+     loss: {type: "theft", state: "CA"}
+   }
+   ```
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "IDX-CLAIMS-01",
+     claimNumber: "CLM-26003",
+     status: "CLOSED",
+     priority: 1,
+     reportedAt: ISODate("2026-08-20T03:15:00Z"),
+     insured: {customerId: "CUS-1003", name: "Noah Tan"},
+     loss: {type: "water", state: "NV"}
+   }
+   ```
+
+5. On the **Advanced** filter tab, enter `{"status": "OPEN"}` and select **Find**. Confirm that `CLM-26001` and `CLM-26002` are returned.
+
+#### Capture the Plan Before Adding Indexes
+
+Run the exact dashboard query with execution statistics:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const plan = db.exercise_claim_work_queue
+      .find({status: "OPEN"})
+      .sort({priority: -1, reportedAt: 1})
+      .explain("executionStats");
+    printjson(plan);'
+```
+
+Before any user-created index exists, the winning plan should contain `COLLSCAN` and a blocking `SORT`. Record `nReturned`, `totalDocsExamined`, and `totalKeysExamined`.
+
+#### Create the Business-Key and Work-Queue Indexes
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    print(db.exercise_claim_work_queue.createIndex(
+      {claimNumber: 1},
+      {name: "uq_claim_number", unique: true}
+    ));
+    print(db.exercise_claim_work_queue.createIndex(
+      {status: 1, priority: -1, reportedAt: 1},
+      {name: "claim_work_queue"}
+    ));
+    printjson(db.exercise_claim_work_queue.getIndexes());'
+```
+
+`uq_claim_number` enforces the insurance business rule that a claim number identifies only one claim. `claim_work_queue` places the equality field first and the two requested sort fields next, in their requested directions. This lets MongoDB read the open portion of the index in dashboard order instead of sorting fetched claims in memory.
+
+Re-run the earlier `explain("executionStats")`. The winning plan should now contain `IXSCAN` using `claim_work_queue`, should not contain a blocking `SORT`, and should examine only the index keys and documents needed for the two open claims. The returned claim order must remain `CLM-26002`, then `CLM-26001` because both have the same priority and `CLM-26002` was reported first.
+
+### Exercise 2: Find Policies Approaching Renewal
+
+A renewal team requests active policies for one carrier and risk state within a date window. A separate unique index protects policy identity.
+
+#### Create the Collection and Insert Policies
+
+1. In `mongodb_express_guide`, create `exercise_policy_renewals` and open it.
+2. Use **New Document** to insert each document:
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "IDX-RENEWALS-02",
+     policyNumber: "POL-CA-1001",
+     carrierId: "CAR-01",
+     status: "ACTIVE",
+     renewalDate: ISODate("2026-09-05T00:00:00Z"),
+     holder: {customerId: "CUS-2001", name: "Ava Garcia"},
+     risk: {state: "CA", line: "AUTO"}
+   }
+   ```
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "IDX-RENEWALS-02",
+     policyNumber: "POL-CA-1002",
+     carrierId: "CAR-01",
+     status: "ACTIVE",
+     renewalDate: ISODate("2026-09-18T00:00:00Z"),
+     holder: {customerId: "CUS-2002", name: "Eli Ramos"},
+     risk: {state: "CA", line: "HOME"}
+   }
+   ```
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "IDX-RENEWALS-02",
+     policyNumber: "POL-NV-1003",
+     carrierId: "CAR-01",
+     status: "ACTIVE",
+     renewalDate: ISODate("2026-09-12T00:00:00Z"),
+     holder: {customerId: "CUS-2003", name: "Zoe Lim"},
+     risk: {state: "NV", line: "AUTO"}
+   }
+   ```
+
+3. On the **Simple** tab, query `policyNumber` as a String with value `POL-CA-1001`. Confirm exactly one record is returned.
+
+#### Compare the Unindexed and Indexed Plans
+
+Capture the baseline plan:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    printjson(db.exercise_policy_renewals.find({
+      carrierId: "CAR-01",
+      "risk.state": "CA",
+      status: "ACTIVE",
+      renewalDate: {
+        $gte: ISODate("2026-09-01T00:00:00Z"),
+        $lt: ISODate("2026-10-01T00:00:00Z")
+      }
+    }).sort({renewalDate: 1}).explain("executionStats"));'
+```
+
+Confirm that the initial winning plan contains `COLLSCAN`, then create both required indexes:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    print(db.exercise_policy_renewals.createIndex(
+      {policyNumber: 1},
+      {name: "uq_policy_number", unique: true}
+    ));
+    print(db.exercise_policy_renewals.createIndex(
+      {carrierId: 1, "risk.state": 1, status: 1, renewalDate: 1},
+      {name: "renewal_work_queue"}
+    ));
+    printjson(db.exercise_policy_renewals.getIndexes());'
+```
+
+The unique index prevents duplicate policy identities. In `renewal_work_queue`, exact-match fields precede the renewal-date range. The date is also the sort field, so MongoDB can scan the matching date interval in renewal order. This pattern supports timely notices without indexing every holder or risk attribute.
+
+Re-run the baseline explain. Look for `IXSCAN` using `renewal_work_queue`, confirm the query returns the two California policies in renewal-date order, and compare examined keys and documents with the baseline.
+
+### Exercise 3: Review Pending Provider Payments
+
+A claims-payment team reviews pending payments for one medical provider, newest submission first. The provider identifier is nested because provider details are managed as one embedded business object.
+
+#### Create the Collection and Insert Payments
+
+1. In `mongodb_express_guide`, create `exercise_provider_payments` and open it.
+2. Insert the following documents with **New Document**:
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "IDX-PAYMENTS-03",
+     paymentReference: "PAY-9001",
+     claimNumber: "CLM-26010",
+     status: "PENDING_REVIEW",
+     submittedAt: ISODate("2026-08-27T02:00:00Z"),
+     provider: {npi: "1234567890", name: "Central Care Clinic"},
+     amount: NumberDecimal("8400.00")
+   }
+   ```
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "IDX-PAYMENTS-03",
+     paymentReference: "PAY-9002",
+     claimNumber: "CLM-26011",
+     status: "PENDING_REVIEW",
+     submittedAt: ISODate("2026-08-27T05:30:00Z"),
+     provider: {npi: "1234567890", name: "Central Care Clinic"},
+     amount: NumberDecimal("12650.00")
+   }
+   ```
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "IDX-PAYMENTS-03",
+     paymentReference: "PAY-9003",
+     claimNumber: "CLM-26012",
+     status: "APPROVED",
+     submittedAt: ISODate("2026-08-26T04:10:00Z"),
+     provider: {npi: "5555555555", name: "North Diagnostic Center"},
+     amount: NumberDecimal("2100.00")
+   }
+   ```
+
+3. On the **Advanced** tab, query `{"provider.npi": "1234567890", "status": "PENDING_REVIEW"}`. Confirm two payments are returned.
+
+Capture the unindexed payment-queue plan:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    printjson(db.exercise_provider_payments
+      .find({"provider.npi": "1234567890", status: "PENDING_REVIEW"})
+      .sort({submittedAt: -1})
+      .explain("executionStats"));'
+```
+
+The initial plan should contain `COLLSCAN` and `SORT`. Create the integrity and operations indexes:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    print(db.exercise_provider_payments.createIndex(
+      {paymentReference: 1},
+      {name: "uq_payment_reference", unique: true}
+    ));
+    print(db.exercise_provider_payments.createIndex(
+      {"provider.npi": 1, status: 1, submittedAt: -1},
+      {name: "provider_payment_review"}
+    ));
+    printjson(db.exercise_provider_payments.getIndexes());'
+```
+
+`uq_payment_reference` prevents duplicate payment instructions. `provider_payment_review` uses the provider and workflow status as equality prefixes and maintains the required newest-first order. This supports adjuster review and provider-level fraud investigation without scanning unrelated providers or approved payments.
+
+Re-run the explain. Confirm `IXSCAN` uses `provider_payment_review`, no blocking `SORT` remains, and `PAY-9002` is returned before `PAY-9001`.
+
+### Monitor and Debug the Exercise Indexes Daily
+
+Run each exercise query normally at least once after creating its indexes; remove `.explain("executionStats")` from the demonstrated expression and iterate or call `.toArray()` on the cursor. Explain operations alone may not increment the usage counter. Then collect index definitions, access counters, and storage statistics:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const names = [
+      "exercise_claim_work_queue",
+      "exercise_policy_renewals",
+      "exercise_provider_payments"
+    ];
+    for (const name of names) {
+      const collection = db.getCollection(name);
+      print(`\n=== ${name} ===`);
+      printjson(collection.getIndexes());
+      collection.aggregate([{$indexStats: {}}]).forEach(printjson);
+      const stats = collection.stats({scale: 1});
+      printjson({
+        documents: stats.count,
+        storageBytes: stats.storageSize,
+        totalIndexBytes: stats.totalIndexSize,
+        indexBytes: stats.indexSizes
+      });
+    }'
+```
+
+Use this daily review procedure:
+
+1. Record the exact slow or incorrect query, expected count, actual count, and observation time.
+2. Run the query without changing it and capture `explain("executionStats")`.
+3. Check the winning stage, index name, `nReturned`, `totalDocsExamined`, `totalKeysExamined`, and any blocking `SORT`.
+4. Compare `getIndexes()` with the application query patterns and review `$indexStats` over a representative workload window.
+5. Track collection storage and total index storage for unexpected growth.
+6. Inspect BSON types and document shape before assuming that a missing result is an index problem.
+7. Record any proposed index or data change, its expected benefit, verification, and rollback command.
+
+`$indexStats.accesses.ops` is a usage counter, not proof that an index is still required or safe to remove. Its values reset when the MongoDB process restarts. Never drop an index solely because it reports zero operations during a short observation window; first review production query history, uniqueness requirements, application owners, and an approved rollback plan.
+
+### Exercise 4: Repair an Incompatible Array of Covered Drivers
+
+A policy search uses `$elemMatch` to find an active covered driver by license number. One migrated policy stores `coveredDrivers` as an array of strings instead of an array of driver objects, so the search misses an important covered person.
+
+#### Create the Collection and Reproduce the Miss
+
+1. In `mongodb_express_guide`, create `exercise_policy_drivers` and open it.
+2. Insert the correctly shaped policy:
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "DATA-DRIVERS-04",
+     policyNumber: "POL-DRV-4001",
+     coveredDrivers: [
+       {licenseNumber: "D10001", name: "Ana Flores", status: "ACTIVE"},
+       {licenseNumber: "D10002", name: "Sam Lee", status: "EXCLUDED"}
+     ]
+   }
+   ```
+
+3. Insert the incompatible migrated policy:
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "DATA-DRIVERS-04",
+     policyNumber: "POL-DRV-4002",
+     coveredDrivers: ["D20001", "D20002"]
+   }
+   ```
+
+4. On the **Advanced** tab, run:
+
+   ```json
+   {"coveredDrivers": {"$elemMatch": {"licenseNumber": "D20001", "status": "ACTIVE"}}}
+   ```
+
+The query returns no records even though the migration source says `D20001` is covered by `POL-DRV-4002`. Do not broaden the production query to accept every historical shape; first prove and correct the incompatible data.
+
+Inspect the array and its element types:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    db.exercise_policy_drivers.aggregate([
+      {$project: {
+        _id: 0,
+        policyNumber: 1,
+        coveredDriversType: {$type: "$coveredDrivers"},
+        isArray: {$isArray: "$coveredDrivers"},
+        elementTypes: {
+          $map: {input: "$coveredDrivers", as: "driver", in: {$type: "$$driver"}}
+        }
+      }}
+    ]).forEach(printjson);'
+```
+
+The broken policy reports an array whose element types are `string`; the valid policy reports `object` elements.
+
+#### Back Up, Repair, and Verify the Policy
+
+Before editing, copy the affected document into a repair backup collection and verify the copy:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const source = db.exercise_policy_drivers.findOne({policyNumber: "POL-DRV-4002"});
+    if (!source) throw new Error("POL-DRV-4002 was not found");
+    db.exercise_data_repair_backup.replaceOne(
+      {sourceCollection: "exercise_policy_drivers", sourceId: source._id},
+      {sourceCollection: "exercise_policy_drivers", sourceId: source._id, backedUpAt: new Date(), document: source},
+      {upsert: true}
+    );
+    printjson(db.exercise_data_repair_backup.findOne({
+      sourceCollection: "exercise_policy_drivers",
+      sourceId: source._id
+    }));'
+```
+
+After checking the approved policy-administration source, apply only the verified replacement values:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const result = db.exercise_policy_drivers.updateOne(
+      {
+        policyNumber: "POL-DRV-4002",
+        coveredDrivers: {$type: "array"},
+        "coveredDrivers.0": {$type: "string"}
+      },
+      {$set: {coveredDrivers: [
+        {licenseNumber: "D20001", name: "Rina Patel", status: "ACTIVE"},
+        {licenseNumber: "D20002", name: "Omar Diaz", status: "ACTIVE"}
+      ]}}
+    );
+    printjson(result);
+    printjson(db.exercise_policy_drivers.findOne({
+      coveredDrivers: {$elemMatch: {licenseNumber: "D20001", status: "ACTIVE"}}
+    }));'
+```
+
+Expected evidence is `matchedCount: 1`, `modifiedCount: 1`, and the repaired `POL-DRV-4002` result. If `matchedCount` is zero, stop and investigate rather than issuing a broader update. The names and statuses in a real repair must come from an authorized system of record, not from inference based on the license strings.
+
+### Exercise 5: Repair Types in Nested Claim-Reserve Objects
+
+A severity report finds claims whose indemnity reserve is at least `10000.00` and effective during August 2026. One migrated claim contains the right visible values, but stores both the reserve amount and date as strings inside a nested array of objects.
+
+#### Create the Collection and Reproduce the Miss
+
+1. In `mongodb_express_guide`, create `exercise_claim_reserves` and open it.
+2. Insert the correctly typed claim:
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "DATA-RESERVES-05",
+     claimNumber: "CLM-RSV-5001",
+     financials: {
+       currency: "USD",
+       reserves: [
+         {category: "INDEMNITY", amount: NumberDecimal("15000.00"), effectiveAt: ISODate("2026-08-10T00:00:00Z")},
+         {category: "EXPENSE", amount: NumberDecimal("2500.00"), effectiveAt: ISODate("2026-08-10T00:00:00Z")}
+       ]
+     }
+   }
+   ```
+
+3. Insert the incompatible migrated claim:
+
+   ```javascript
+   {
+     _id: ObjectId(),
+     exerciseId: "DATA-RESERVES-05",
+     claimNumber: "CLM-RSV-5002",
+     financials: {
+       currency: "USD",
+       reserves: [
+         {category: "INDEMNITY", amount: "12500.00", effectiveAt: "2026-08-15T00:00:00Z"},
+         {category: "EXPENSE", amount: NumberDecimal("1800.00"), effectiveAt: ISODate("2026-08-15T00:00:00Z")}
+       ]
+     }
+   }
+   ```
+
+4. Run the typed query with `mongosh`:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    db.exercise_claim_reserves.find({
+      "financials.reserves": {$elemMatch: {
+        category: "INDEMNITY",
+        amount: {$gte: NumberDecimal("10000.00")},
+        effectiveAt: {
+          $gte: ISODate("2026-08-01T00:00:00Z"),
+          $lt: ISODate("2026-09-01T00:00:00Z")
+        }
+      }}
+    }, {_id: 0, claimNumber: 1}).forEach(printjson);'
+```
+
+Only `CLM-RSV-5001` is returned. MongoDB comparisons are type-sensitive; a value that looks like a date or decimal in the UI is not compatible with a query that uses BSON `Date` and `Decimal128` values if it is stored as a string.
+
+Inspect every reserve element rather than relying on its displayed text:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    db.exercise_claim_reserves.aggregate([
+      {$unwind: "$financials.reserves"},
+      {$project: {
+        _id: 0,
+        claimNumber: 1,
+        category: "$financials.reserves.category",
+        amount: "$financials.reserves.amount",
+        amountType: {$type: "$financials.reserves.amount"},
+        effectiveAt: "$financials.reserves.effectiveAt",
+        effectiveAtType: {$type: "$financials.reserves.effectiveAt"}
+      }}
+    ]).forEach(printjson);'
+```
+
+#### Back Up, Repair, and Verify the Nested Element
+
+Back up the affected claim and verify the copy:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const source = db.exercise_claim_reserves.findOne({claimNumber: "CLM-RSV-5002"});
+    if (!source) throw new Error("CLM-RSV-5002 was not found");
+    db.exercise_data_repair_backup.replaceOne(
+      {sourceCollection: "exercise_claim_reserves", sourceId: source._id},
+      {sourceCollection: "exercise_claim_reserves", sourceId: source._id, backedUpAt: new Date(), document: source},
+      {upsert: true}
+    );
+    printjson(db.exercise_data_repair_backup.findOne({
+      sourceCollection: "exercise_claim_reserves",
+      sourceId: source._id
+    }));'
+```
+
+Then apply a guarded, element-level repair:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const result = db.exercise_claim_reserves.updateOne(
+      {claimNumber: "CLM-RSV-5002"},
+      {$set: {
+        "financials.reserves.$[reserve].amount": NumberDecimal("12500.00"),
+        "financials.reserves.$[reserve].effectiveAt": ISODate("2026-08-15T00:00:00Z")
+      }},
+      {arrayFilters: [{
+        "reserve.category": "INDEMNITY",
+        "reserve.amount": {$type: "string"},
+        "reserve.effectiveAt": {$type: "string"}
+      }]}
+    );
+    printjson(result);'
+```
+
+Expected evidence is `matchedCount: 1` and `modifiedCount: 1`. Re-run both the typed query and type-inspection aggregation. Both claims should now be returned, while `CLM-RSV-5002` should report `decimal` for the indemnity amount and `date` for its effective date. The expense reserve must remain unchanged.
+
+### Daily Data Debugging and Safe Exercise Cleanup
+
+Search for incompatible exercise data before changing it:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    printjson({
+      malformedDriverPolicies: db.exercise_policy_drivers.countDocuments({
+        "coveredDrivers.0": {$type: "string"}
+      }),
+      stringReserveValues: db.exercise_claim_reserves.countDocuments({
+        "financials.reserves": {$elemMatch: {
+          $or: [
+            {amount: {$type: "string"}},
+            {effectiveAt: {$type: "string"}}
+          ]
+        }}
+      })
+    });'
+```
+
+For daily debugging, record the business identifier and current document, compare it with the approved source, inspect nested field types, back up the exact document, use a guarded `updateOne`, and verify the business query plus unaffected fields. Never repair every document merely because one example has the wrong shape.
+
+To remove only the records created by one exercise, first count the exact marker, then delete using the same filter and verify zero remain:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const filter = {exerciseId: "IDX-CLAIMS-01"};
+    const before = db.exercise_claim_work_queue.countDocuments(filter);
+    printjson({collection: "exercise_claim_work_queue", filter, before});
+    if (before !== 3) throw new Error(`Expected 3 exercise records; found ${before}. Nothing deleted.`);
+    printjson(db.exercise_claim_work_queue.deleteMany(filter));
+    printjson({remaining: db.exercise_claim_work_queue.countDocuments(filter)});'
+```
+
+This cleanup leaves the collection and its indexes in place. To remove a known exercise index after an approved review, capture `getIndexes()` and the query plan first, then target its exact name, for example `db.exercise_claim_work_queue.dropIndex("claim_work_queue")`. Do not use a wildcard, drop `_id_`, or treat index deletion as routine housekeeping.
+
+## 19. Slow Query Management
+
+These exercises demonstrate how a query that scans many documents can become more efficient after a matching index is added. They are deliberately isolated from the earlier exercises and use collections whose names begin with `slow_query_`.
+
+mongo-express does not display a MongoDB query plan, `executionStats`, or server-only execution time. The browser measurements below include the mongo-express request, MongoDB work, network transfer, document counting, and page rendering. Use them as approximate workshop observations, not as production proof or a promised speedup. Production validation still requires `explain("executionStats")`, profiler or slow-query evidence, and representative workload monitoring.
+
+### Prepare and Measure Each Exercise
+
+Each seed command drops one specifically named exercise collection before inserting 50,000 deterministic documents. Dropping the collection also removes its indexes so the first measurement is genuinely unindexed. Run these commands only against `mongodb_express_guide`.
+
+Use the same measurement procedure for all five exercises:
+
+1. Open the exercise collection in mongo-express and scroll to **Indexes**. Confirm that only `_id_` exists, then record **Indexes** and **Total index size** from **Collection Statistics**.
+2. Open the browser developer tools and select **Network**.
+3. Enable **Disable cache** while the developer tools remain open. Select the **Doc** request type if the browser offers that filter.
+4. Enter the stated query in mongo-express. Perform any stated sort steps, then select **Find** once as a warm-up.
+5. Select **Find** five more times. For each run, select the document request whose URL contains `/db/mongodb_express_guide/<collection-name>/`, open **Timing**, and record its total duration.
+6. Use the middle value of the five ordered durations as the median. Do not compare the fastest unindexed request with the slowest indexed request.
+7. Select **New Index**, replace the editor content with the exercise's index document, and select **Save**.
+8. Refresh the collection page. Confirm the generated index name, index count, and total index size.
+9. Repeat the identical query, sort, warm-up, and five timed requests. The returned count and ordering must remain unchanged.
+
+Record the evidence for each exercise:
+
+| Measurement | Before index | After index |
+| --- | ---: | ---: |
+| Matching documents |  |  |
+| Median browser request time |  |  |
+| Index count |  |  |
+| Total index size |  |  |
+| Relevant index name | `_id_` only |  |
+
+Timing can vary because of CPU load, caches, storage, and browser rendering. If the indexed median is not lower, repeat the complete five-request samples and report the result honestly. The invariant is that the query results remain correct and that the intended index exists; mongo-express alone cannot prove which plan MongoDB selected.
+
+### Slow Query Exercise 1: Find One Claim by Claim Number
+
+This support lookup should return one claim, but without an index MongoDB must inspect the collection to locate it.
+
+Seed the collection:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const name = "slow_query_claim_lookup";
+    db.getCollection(name).drop();
+    const collection = db.getCollection(name);
+    for (let start = 0; start < 50000; start += 1000) {
+      const batch = [];
+      for (let i = start; i < start + 1000; i++) {
+        batch.push({
+          exerciseId: "SLOW-QUERY-01",
+          claimNumber: `CLM-${String(i).padStart(6, "0")}`,
+          customerId: `CUS-${String(i % 10000).padStart(5, "0")}`,
+          status: i % 4 === 0 ? "OPEN" : "CLOSED",
+          lossType: ["collision", "theft", "water", "fire"][i % 4]
+        });
+      }
+      collection.insertMany(batch);
+    }
+    printjson({documents: collection.countDocuments({}), indexes: collection.getIndexes().length});'
+```
+
+Expected seed evidence is `documents: 50000` and `indexes: 1`.
+
+In the **Simple** tab, enter:
+
+| Control | Value |
+| --- | --- |
+| Key | `claimNumber` |
+| Value | `CLM-049999` |
+| Type | `String` |
+
+The query must return exactly one document. Measure it, then create this index:
+
+```json
+{"claimNumber": 1}
+```
+
+The generated name is `claimNumber_1`. Repeat the measurement and explain why an exact lookup benefits from an index whose first key is `claimNumber`.
+
+### Slow Query Exercise 2: Sort an Open-Claims Work Queue
+
+An adjuster needs open claims ordered by highest priority first and, within a priority, oldest report first. The index must support both the equality filter and the requested order.
+
+Seed the collection:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const name = "slow_query_claim_queue";
+    db.getCollection(name).drop();
+    const collection = db.getCollection(name);
+    for (let start = 0; start < 50000; start += 1000) {
+      const batch = [];
+      for (let i = start; i < start + 1000; i++) {
+        batch.push({
+          exerciseId: "SLOW-QUERY-02",
+          claimNumber: `QUEUE-${String(i).padStart(6, "0")}`,
+          status: i % 5 === 0 ? "OPEN" : "CLOSED",
+          priority: 1 + (i % 5),
+          reportedAt: new Date(Date.UTC(2026, 0, 1, 0, i)),
+          adjusterRegion: ["NORTH", "SOUTH", "EAST", "WEST"][i % 4]
+        });
+      }
+      collection.insertMany(batch);
+    }
+    printjson({
+      documents: collection.countDocuments({}),
+      openClaims: collection.countDocuments({status: "OPEN"}),
+      indexes: collection.getIndexes().length
+    });'
+```
+
+Expected evidence is 50,000 documents, 10,000 open claims, and one index.
+
+On the **Advanced** tab, enter:
+
+```json
+{"status": "OPEN"}
+```
+
+Select **Find**, select the `priority` heading twice so it shows descending order, and then select `reportedAt` once so it shows ascending order. Confirm that both sort indicators remain visible. Use this filtered and sorted request for all timing samples.
+
+Create:
+
+```json
+{"status": 1, "priority": -1, "reportedAt": 1}
+```
+
+The generated name is `status_1_priority_-1_reportedAt_1`. After creating it, repeat the same filter and sort. Confirm that 10,000 documents still match and that the displayed claims remain in descending priority and ascending report-time order. The equality field comes first, followed by the two sort fields in their requested directions.
+
+### Slow Query Exercise 3: Find Policies in a Renewal Window
+
+The renewal team searches active policies for one carrier and risk state during a date window. This demonstrates a compound index with equality fields before a range field.
+
+Seed the collection:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const name = "slow_query_policy_renewals";
+    db.getCollection(name).drop();
+    const collection = db.getCollection(name);
+    const states = ["CA", "NV", "AZ", "OR"];
+    for (let start = 0; start < 50000; start += 1000) {
+      const batch = [];
+      for (let i = start; i < start + 1000; i++) {
+        batch.push({
+          exerciseId: "SLOW-QUERY-03",
+          policyNumber: `POL-${String(i).padStart(6, "0")}`,
+          carrierId: `CAR-${String(i % 10).padStart(2, "0")}`,
+          status: i % 5 === 0 ? "CANCELLED" : "ACTIVE",
+          renewalDate: new Date(Date.UTC(2026, 0, 1 + (i % 365))),
+          risk: {state: states[i % states.length], line: i % 2 === 0 ? "AUTO" : "HOME"}
+        });
+      }
+      collection.insertMany(batch);
+    }
+    const query = {
+      carrierId: "CAR-02",
+      "risk.state": "CA",
+      status: "ACTIVE",
+      renewalDate: {$gte: ISODate("2026-09-01T00:00:00Z"), $lt: ISODate("2026-10-01T00:00:00Z")}
+    };
+    printjson({
+      documents: collection.countDocuments({}),
+      matchingPolicies: collection.countDocuments(query),
+      indexes: collection.getIndexes().length
+    });'
+```
+
+Expected evidence is 50,000 documents, 206 matching policies, and one index. On the **Advanced** tab, enter the identical query:
+
+```javascript
+{
+  "carrierId": "CAR-02",
+  "risk.state": "CA",
+  "status": "ACTIVE",
+  "renewalDate": {
+    "$gte": ISODate("2026-09-01T00:00:00Z"),
+    "$lt": ISODate("2026-10-01T00:00:00Z")
+  }
+}
+```
+
+Measure the request and create:
+
+```json
+{"carrierId": 1, "risk.state": 1, "status": 1, "renewalDate": 1}
+```
+
+The generated name is `carrierId_1_risk.state_1_status_1_renewalDate_1`. Repeat the exact query and confirm its count is unchanged. The carrier, state, and status equality keys narrow the index scan before MongoDB evaluates the renewal-date interval.
+
+### Slow Query Exercise 4: Review One Provider's Pending Payments
+
+The payment team repeatedly searches a nested provider identifier and workflow status. This demonstrates indexing a nested field as part of a compound key.
+
+Seed the collection:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const name = "slow_query_provider_payments";
+    db.getCollection(name).drop();
+    const collection = db.getCollection(name);
+    for (let start = 0; start < 50000; start += 1000) {
+      const batch = [];
+      for (let i = start; i < start + 1000; i++) {
+        batch.push({
+          exerciseId: "SLOW-QUERY-04",
+          paymentReference: `PAY-${String(i).padStart(6, "0")}`,
+          provider: {
+            npi: String(1000000000 + (i % 2000)),
+            name: `Provider ${i % 2000}`
+          },
+          status: i % 3 === 0 ? "PENDING_REVIEW" : "APPROVED",
+          submittedAt: new Date(Date.UTC(2026, 7, 1, 0, i)),
+          amount: NumberDecimal(String(100 + (i % 25000)) + ".00")
+        });
+      }
+      collection.insertMany(batch);
+    }
+    const query = {"provider.npi": "1000001999", status: "PENDING_REVIEW"};
+    printjson({
+      documents: collection.countDocuments({}),
+      matchingPayments: collection.countDocuments(query),
+      indexes: collection.getIndexes().length
+    });'
+```
+
+Expected evidence is 50,000 documents, eight matching payments, and one index. In **Advanced** query mode, enter:
+
+```json
+{"provider.npi": "1000001999", "status": "PENDING_REVIEW"}
+```
+
+Measure it and create:
+
+```json
+{"provider.npi": 1, "status": 1}
+```
+
+The generated name is `provider.npi_1_status_1`. Repeat the exact query and confirm its count and documents do not change. Explain why indexing `provider.name` would not solve a query whose predicate uses `provider.npi`.
+
+### Slow Query Exercise 5: Find Claims with a Rare Investigation Tag
+
+Claims may have several investigation tags. MongoDB automatically makes an index on an array field multikey, allowing it to locate documents containing one array value.
+
+Seed the collection:
+
+```bash
+docker compose -f mongodb/docker-compose.yml exec mongodb \
+  mongosh 'mongodb://localhost:27017/mongodb_express_guide?replicaSet=rs0&directConnection=true' \
+  --quiet --eval '
+    const name = "slow_query_investigation_tags";
+    db.getCollection(name).drop();
+    const collection = db.getCollection(name);
+    for (let start = 0; start < 50000; start += 1000) {
+      const batch = [];
+      for (let i = start; i < start + 1000; i++) {
+        const tags = ["standard-review", i % 2 === 0 ? "auto" : "property"];
+        if (i % 4000 === 0) tags.push("catastrophe-watch");
+        batch.push({
+          exerciseId: "SLOW-QUERY-05",
+          claimNumber: `TAG-${String(i).padStart(6, "0")}`,
+          status: i % 4 === 0 ? "OPEN" : "CLOSED",
+          investigationTags: tags,
+          updatedAt: new Date(Date.UTC(2026, 7, 1, 0, i))
+        });
+      }
+      collection.insertMany(batch);
+    }
+    printjson({
+      documents: collection.countDocuments({}),
+      catastropheWatch: collection.countDocuments({investigationTags: "catastrophe-watch"}),
+      indexes: collection.getIndexes().length
+    });'
+```
+
+Expected evidence is 50,000 documents, 13 matching claims, and one index. On the **Simple** tab, enter:
+
+| Control | Value |
+| --- | --- |
+| Key | `investigationTags` |
+| Value | `catastrophe-watch` |
+| Type | `String` |
+
+Measure it and create:
+
+```json
+{"investigationTags": 1}
+```
+
+The generated name is `investigationTags_1`. Because `investigationTags` contains arrays, MongoDB manages this as a multikey index even though the mongo-express **Attributes** column may not label it as multikey. Repeat the query and confirm the same 13 documents match.
+
+### Interpret, Roll Back, and Clean Up Safely
+
+For each exercise, explain the improvement in terms of the query shape, not only the browser duration. Also record the additional index storage and note that inserts, deletes, and updates to indexed fields now require index maintenance.
+
+If an exercise index must be rolled back, use **DEL** only beside its exact generated name in the collection's **Indexes** table:
+
+| Collection | Exercise index |
+| --- | --- |
+| `slow_query_claim_lookup` | `claimNumber_1` |
+| `slow_query_claim_queue` | `status_1_priority_-1_reportedAt_1` |
+| `slow_query_policy_renewals` | `carrierId_1_risk.state_1_status_1_renewalDate_1` |
+| `slow_query_provider_payments` | `provider.npi_1_status_1` |
+| `slow_query_investigation_tags` | `investigationTags_1` |
+
+Never delete `_id_`. After rollback, repeat the same query and capture a fresh measurement rather than assuming the earlier baseline still applies.
+
+The database cleanup in the next section removes all five collections together with the rest of the isolated guide database. Do not delete similarly named collections from `workshop` or another database.
+
+## 20. Clean Up Only the Guide Database
 
 First verify the target independently:
 
@@ -771,7 +1668,7 @@ docker compose -f mongodb/docker-compose.yml exec mongodb \
 
 The `workshop` database and its collections must remain unchanged.
 
-## 19. Stop the Local Environment
+## 21. Stop the Local Environment
 
 Stop MongoDB and mongo-express without deleting their persistent MongoDB volume:
 
